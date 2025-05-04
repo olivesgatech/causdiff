@@ -1,0 +1,113 @@
+---------------------------------------
+Begin Slurm Prolog: Apr-20-2025 00:51:58
+Job ID:    2500031
+User ID:   skim3513
+Account:   ece
+Job name:  run-causal.sh
+Partition: coe-gpu
+QOS:       coe-ice
+---------------------------------------
+*-----------------------------*
+    model  =  bit-diff-pred-tcn
+    layer_type  =  gated
+    bz  =  16
+    num_stages  =  5
+    obs_stages  =  0
+    ant_stages  =  5
+    kernel_size  =  3
+    num_layers  =  9
+    lr  =  0.0005
+    ds  =  bf
+    sample_rate  =  3
+    use_features  =  True
+    channel_dropout_prob  =  0.4
+    split  =  4
+*-----------------------------*
+Dir : 202504192145_bf_bit-diff-pred-tcn_os_0_as_5_m_dim_64_lt_gated_pvo_inp_ch_dr_ns_1000_lt_l2_obj_pred_x0_cond_x0_True_split_4
+Number of classes : 48
+Number of classes : 10
+Dataset: bf
+Mode : train
+Vid list file : ./datasets/breakfast/splits/train.split4.bundle
+Observation perc : 0
+Dataset: bf
+Mode : eval
+Vid list file : ./datasets/breakfast/splits/test.split4.bundle
+Observation perc : 0.2
+Dataset: bf
+Mode : eval
+Vid list file : ./datasets/breakfast/splits/test.split4.bundle
+Observation perc : 0.3
+Num classes : 48
+Loss type : l2
+Objective: pred_x0
+Beta schedule : cosine
+Start Training...
+training in the loop for  213  number of loops
+Traceback (most recent call last):
+  File "./src/main-causal.py", line 221, in <module>
+    trainer.train(args=args,
+  File "/storage/ice1/7/2/skim3513/GTDA/src/trainers_causal.py", line 118, in train
+    batch_correct_future, batch_total_future = self.train_single_batch(sample_batched, optimizer, device)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/trainers_causal.py", line 251, in train_single_batch
+    loss, tcn_predictions = self.diffusion({'mask_past': rearrange(mask_past_tensor, 'b c t -> b t c'),
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/bit_diffusion_causal.py", line 299, in forward
+    return self.p_losses(
+  File "/storage/ice1/7/2/skim3513/GTDA/src/bit_diffusion_causal.py", line 252, in p_losses
+    model_out, high_level_goal_softmax = self.model(
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/models_bit_diff_causal.py", line 77, in forward
+    frame_wise_pred, _ = self.ms_tcn(x, t, stage_masks, high_level_goal)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/models_bit_diff_causal.py", line 137, in forward
+    out, out_features = s(torch.cat((F.softmax(out, dim=1) * stage_masks[sn], x), dim=1), t, stage_masks[sn], high_level_goal)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/models_bit_diff_causal.py", line 203, in forward
+    out = layer(out, time, mask, high_level_goal)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/models_bit_diff_causal.py", line 311, in forward
+    out = self.goal_attn(out, high_level_goal)  # (B, C, T)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/storage/ice1/7/2/skim3513/GTDA/src/models_bit_diff_causal.py", line 404, in forward
+    x_hat, _ = self.cs_attn(x_seq, goal_seq, goal_seq)  # (B, T, C)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/modules/activation.py", line 1275, in forward
+    attn_output, attn_output_weights = F.multi_head_attention_forward(
+  File "/home/hice1/skim3513/AIFirst_F24_data/anaconda3/envs/myenv3/lib/python3.8/site-packages/torch/nn/functional.py", line 5525, in multi_head_attention_forward
+    attn_output_weights = torch.bmm(q_scaled, k.transpose(-2, -1))
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.18 GiB. GPU 0 has a total capacity of 79.22 GiB of which 329.56 MiB is free. Including non-PyTorch memory, this process has 78.86 GiB memory in use. Of the allocated memory 76.93 GiB is allocated by PyTorch, and 1.26 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+srun: error: atl1-1-03-013-3-0: task 0: Exited with exit code 1
+---------------------------------------
+Begin Slurm Epilog: Apr-20-2025 00:52:17
+Job ID:        2500031
+User ID:       skim3513
+Account:       ece
+Job name:      run-causal.sh
+Resources:     cpu=32,gres/gpu:h100=1,mem=128G,node=1
+Rsrc Used:     cput=00:14:56,vmem=0,walltime=00:00:28,mem=8964K,energy_used=0
+Partition:     coe-gpu
+QOS:           coe-ice
+Nodes:         atl1-1-03-013-3-0
+---------------------------------------

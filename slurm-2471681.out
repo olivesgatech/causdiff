@@ -1,0 +1,245 @@
+---------------------------------------
+Begin Slurm Prolog: Apr-16-2025 00:17:28
+Job ID:    2471681
+User ID:   skim3513
+Account:   ece
+Job name:  run.sh
+Partition: coe-gpu
+QOS:       coe-ice
+---------------------------------------
+*-----------------------------*
+    model  =  bit-diff-pred-tcn
+    layer_type  =  gated
+    bz  =  16
+    num_stages  =  5
+    obs_stages  =  0
+    ant_stages  =  5
+    kernel_size  =  3
+    num_layers  =  9
+    lr  =  0.0005
+    ds  =  bf
+    sample_rate  =  3
+    use_features  =  True
+    channel_dropout_prob  =  0.4
+    split  =  4
+*-----------------------------*
+Dir : 202504160016_bf_bit-diff-pred-tcn_os_0_as_5_m_dim_64_lt_gated_pvo_inp_ch_dr_ns_1000_lt_l2_obj_pred_x0_cond_x0_True_split_4
+Number of classes : 48
+Number of classes : 10
+Dataset: bf
+Mode : train
+Vid list file : ./datasets/breakfast/splits/train.split4.bundle
+Observation perc : 0
+Dataset: bf
+Mode : eval
+Vid list file : ./datasets/breakfast/splits/test.split4.bundle
+Observation perc : 0.2
+Dataset: bf
+Mode : eval
+Vid list file : ./datasets/breakfast/splits/test.split4.bundle
+Observation perc : 0.3
+Num classes : 48
+Loss type : l2
+Objective: pred_x0
+Beta schedule : cosine
+Start Training...
+training in the loop for  213  number of loops
+[epoch 0.000000]: epoch loss = 83.955170, ce loss = 0.000000, past acc = 0.024257, fut acc = 0.002431 
+[epoch 0.023474]: epoch loss = 54.395486, ce loss = 0.000000, past acc = 0.029448, fut acc = 0.024243 
+[epoch 0.046948]: epoch loss = 42.761208, ce loss = 0.000000, past acc = 0.025516, fut acc = 0.019409 
+[epoch 0.070423]: epoch loss = 35.824908, ce loss = 0.000000, past acc = 0.029138, fut acc = 0.029781 
+[epoch 0.093897]: epoch loss = 30.016968, ce loss = 0.000000, past acc = 0.031980, fut acc = 0.039676 
+[epoch 0.117371]: epoch loss = 25.794289, ce loss = 0.000000, past acc = 0.027714, fut acc = 0.037999 
+[epoch 0.140845]: epoch loss = 22.542969, ce loss = 0.000000, past acc = 0.030412, fut acc = 0.034398 
+[epoch 0.164319]: epoch loss = 20.015806, ce loss = 0.000000, past acc = 0.028071, fut acc = 0.032104 
+[epoch 0.187793]: epoch loss = 17.939372, ce loss = 0.000000, past acc = 0.027862, fut acc = 0.030430 
+[epoch 0.211268]: epoch loss = 16.281944, ce loss = 0.000000, past acc = 0.026627, fut acc = 0.030832 
+[epoch 0.234742]: epoch loss = 14.886557, ce loss = 0.000000, past acc = 0.029896, fut acc = 0.030186 
+[epoch 0.258216]: epoch loss = 13.713591, ce loss = 0.000000, past acc = 0.029361, fut acc = 0.030268 
+[epoch 0.281690]: epoch loss = 12.694294, ce loss = 0.000000, past acc = 0.029121, fut acc = 0.030411 
+[epoch 0.305164]: epoch loss = 11.832694, ce loss = 0.000000, past acc = 0.030227, fut acc = 0.033827 
+[epoch 0.328638]: epoch loss = 11.095886, ce loss = 0.000000, past acc = 0.032743, fut acc = 0.035688 
+[epoch 0.352113]: epoch loss = 10.447673, ce loss = 0.000000, past acc = 0.033558, fut acc = 0.035637 
+[epoch 0.375587]: epoch loss = 9.881407, ce loss = 0.000000, past acc = 0.034529, fut acc = 0.038720 
+[epoch 0.399061]: epoch loss = 9.366206, ce loss = 0.000000, past acc = 0.035386, fut acc = 0.044069 
+[epoch 0.422535]: epoch loss = 8.911181, ce loss = 0.000000, past acc = 0.036222, fut acc = 0.048890 
+[epoch 0.446009]: epoch loss = 8.498857, ce loss = 0.000000, past acc = 0.039449, fut acc = 0.052045 
+[epoch 0.469484]: epoch loss = 8.133535, ce loss = 0.000000, past acc = 0.041721, fut acc = 0.053397 
+[epoch 0.492958]: epoch loss = 7.792234, ce loss = 0.000000, past acc = 0.043017, fut acc = 0.055162 
+[epoch 0.516432]: epoch loss = 7.484086, ce loss = 0.000000, past acc = 0.043763, fut acc = 0.058304 
+[epoch 0.539906]: epoch loss = 7.201072, ce loss = 0.000000, past acc = 0.045442, fut acc = 0.059883 
+[epoch 0.563380]: epoch loss = 6.944701, ce loss = 0.000000, past acc = 0.047770, fut acc = 0.060686 
+[epoch 0.586854]: epoch loss = 6.702770, ce loss = 0.000000, past acc = 0.049581, fut acc = 0.062180 
+[epoch 0.610329]: epoch loss = 6.479977, ce loss = 0.000000, past acc = 0.052734, fut acc = 0.064074 
+[epoch 0.633803]: epoch loss = 6.266980, ce loss = 0.000000, past acc = 0.053896, fut acc = 0.062621 
+[epoch 0.657277]: epoch loss = 6.079714, ce loss = 0.000000, past acc = 0.054893, fut acc = 0.064604 
+[epoch 0.680751]: epoch loss = 5.903851, ce loss = 0.000000, past acc = 0.056503, fut acc = 0.065516 
+[epoch 0.704225]: epoch loss = 5.735463, ce loss = 0.000000, past acc = 0.061477, fut acc = 0.070581 
+[epoch 0.727700]: epoch loss = 5.577785, ce loss = 0.000000, past acc = 0.063896, fut acc = 0.072519 
+[epoch 0.751174]: epoch loss = 5.426789, ce loss = 0.000000, past acc = 0.065626, fut acc = 0.074963 
+[epoch 0.774648]: epoch loss = 5.290354, ce loss = 0.000000, past acc = 0.066276, fut acc = 0.076363 
+[epoch 0.798122]: epoch loss = 5.158601, ce loss = 0.000000, past acc = 0.069155, fut acc = 0.078600 
+[epoch 0.821596]: epoch loss = 5.032422, ce loss = 0.000000, past acc = 0.070996, fut acc = 0.082115 
+[epoch 0.845070]: epoch loss = 4.911728, ce loss = 0.000000, past acc = 0.073114, fut acc = 0.084815 
+[epoch 0.868545]: epoch loss = 4.801316, ce loss = 0.000000, past acc = 0.073818, fut acc = 0.085443 
+[epoch 0.892019]: epoch loss = 4.696984, ce loss = 0.000000, past acc = 0.074289, fut acc = 0.087190 
+[epoch 0.915493]: epoch loss = 4.594135, ce loss = 0.000000, past acc = 0.076177, fut acc = 0.087658 
+[epoch 0.938967]: epoch loss = 4.499004, ce loss = 0.000000, past acc = 0.077211, fut acc = 0.087374 
+[epoch 0.962441]: epoch loss = 4.407435, ce loss = 0.000000, past acc = 0.079584, fut acc = 0.088974 
+[epoch 0.985915]: epoch loss = 4.324190, ce loss = 0.000000, past acc = 0.081561, fut acc = 0.090310 
+Current learning rate : 0.0005
+[epoch 0]: epoch loss = 4.292036,  acc = 0.087577
+training in the loop for  213  number of loops
+[epoch 1.000000]: epoch loss = 0.689174, ce loss = 0.000000, past acc = 0.143966, fut acc = 0.187214 
+[epoch 1.023474]: epoch loss = 0.645336, ce loss = 0.000000, past acc = 0.213697, fut acc = 0.132906 
+[epoch 1.046948]: epoch loss = 0.703333, ce loss = 0.000000, past acc = 0.192792, fut acc = 0.129256 
+[epoch 1.070423]: epoch loss = 0.719301, ce loss = 0.000000, past acc = 0.184127, fut acc = 0.136015 
+[epoch 1.093897]: epoch loss = 0.724009, ce loss = 0.000000, past acc = 0.179763, fut acc = 0.126292 
+[epoch 1.117371]: epoch loss = 0.707933, ce loss = 0.000000, past acc = 0.177532, fut acc = 0.131645 
+[epoch 1.140845]: epoch loss = 0.685184, ce loss = 0.000000, past acc = 0.175694, fut acc = 0.137167 
+[epoch 1.164319]: epoch loss = 0.699636, ce loss = 0.000000, past acc = 0.177204, fut acc = 0.132053 
+[epoch 1.187793]: epoch loss = 0.697736, ce loss = 0.000000, past acc = 0.172105, fut acc = 0.136219 
+[epoch 1.211268]: epoch loss = 0.692868, ce loss = 0.000000, past acc = 0.174454, fut acc = 0.147170 
+[epoch 1.234742]: epoch loss = 0.690506, ce loss = 0.000000, past acc = 0.180524, fut acc = 0.154880 
+[epoch 1.258216]: epoch loss = 0.692304, ce loss = 0.000000, past acc = 0.179874, fut acc = 0.154687 
+[epoch 1.281690]: epoch loss = 0.701199, ce loss = 0.000000, past acc = 0.178979, fut acc = 0.153151 
+[epoch 1.305164]: epoch loss = 0.700812, ce loss = 0.000000, past acc = 0.180751, fut acc = 0.147312 
+[epoch 1.328638]: epoch loss = 0.703810, ce loss = 0.000000, past acc = 0.184238, fut acc = 0.145760 
+[epoch 1.352113]: epoch loss = 0.704957, ce loss = 0.000000, past acc = 0.186180, fut acc = 0.142911 
+[epoch 1.375587]: epoch loss = 0.701427, ce loss = 0.000000, past acc = 0.183916, fut acc = 0.142540 
+[epoch 1.399061]: epoch loss = 0.698806, ce loss = 0.000000, past acc = 0.183297, fut acc = 0.145086 
+[epoch 1.422535]: epoch loss = 0.698408, ce loss = 0.000000, past acc = 0.185618, fut acc = 0.145657 
+[epoch 1.446009]: epoch loss = 0.688420, ce loss = 0.000000, past acc = 0.194098, fut acc = 0.147554 
+[epoch 1.469484]: epoch loss = 0.691814, ce loss = 0.000000, past acc = 0.192762, fut acc = 0.146447 
+[epoch 1.492958]: epoch loss = 0.692200, ce loss = 0.000000, past acc = 0.193861, fut acc = 0.146725 
+[epoch 1.516432]: epoch loss = 0.688800, ce loss = 0.000000, past acc = 0.194821, fut acc = 0.148467 
+[epoch 1.539906]: epoch loss = 0.685855, ce loss = 0.000000, past acc = 0.194434, fut acc = 0.149577 
+[epoch 1.563380]: epoch loss = 0.682895, ce loss = 0.000000, past acc = 0.194097, fut acc = 0.149822 
+[epoch 1.586854]: epoch loss = 0.690293, ce loss = 0.000000, past acc = 0.193387, fut acc = 0.148944 
+[epoch 1.610329]: epoch loss = 0.687438, ce loss = 0.000000, past acc = 0.191831, fut acc = 0.148031 
+[epoch 1.633803]: epoch loss = 0.690171, ce loss = 0.000000, past acc = 0.192356, fut acc = 0.149196 
+[epoch 1.657277]: epoch loss = 0.687531, ce loss = 0.000000, past acc = 0.193485, fut acc = 0.148128 
+[epoch 1.680751]: epoch loss = 0.683628, ce loss = 0.000000, past acc = 0.194743, fut acc = 0.149551 
+[epoch 1.704225]: epoch loss = 0.682788, ce loss = 0.000000, past acc = 0.195976, fut acc = 0.149152 
+[epoch 1.727700]: epoch loss = 0.681922, ce loss = 0.000000, past acc = 0.198452, fut acc = 0.148955 
+[epoch 1.751174]: epoch loss = 0.677618, ce loss = 0.000000, past acc = 0.199092, fut acc = 0.149674 
+[epoch 1.774648]: epoch loss = 0.675828, ce loss = 0.000000, past acc = 0.200143, fut acc = 0.150637 
+[epoch 1.798122]: epoch loss = 0.670757, ce loss = 0.000000, past acc = 0.200453, fut acc = 0.150943 
+[epoch 1.821596]: epoch loss = 0.669645, ce loss = 0.000000, past acc = 0.202389, fut acc = 0.150248 
+[epoch 1.845070]: epoch loss = 0.666133, ce loss = 0.000000, past acc = 0.204329, fut acc = 0.152413 
+[epoch 1.868545]: epoch loss = 0.665893, ce loss = 0.000000, past acc = 0.204171, fut acc = 0.153298 
+[epoch 1.892019]: epoch loss = 0.665863, ce loss = 0.000000, past acc = 0.203339, fut acc = 0.152403 
+[epoch 1.915493]: epoch loss = 0.666693, ce loss = 0.000000, past acc = 0.205465, fut acc = 0.153037 
+[epoch 1.938967]: epoch loss = 0.664542, ce loss = 0.000000, past acc = 0.206053, fut acc = 0.153517 
+[epoch 1.962441]: epoch loss = 0.664579, ce loss = 0.000000, past acc = 0.207121, fut acc = 0.154093 
+[epoch 1.985915]: epoch loss = 0.664007, ce loss = 0.000000, past acc = 0.206374, fut acc = 0.152240 
+Current learning rate : 0.0005
+[epoch 1]: epoch loss = 0.665544,  acc = 0.173378
+training in the loop for  213  number of loops
+[epoch 2.000000]: epoch loss = 0.718230, ce loss = 0.000000, past acc = 0.298394, fut acc = 0.255491 
+[epoch 2.023474]: epoch loss = 0.626410, ce loss = 0.000000, past acc = 0.299646, fut acc = 0.186830 
+[epoch 2.046948]: epoch loss = 0.617821, ce loss = 0.000000, past acc = 0.265882, fut acc = 0.163988 
+[epoch 2.070423]: epoch loss = 0.638548, ce loss = 0.000000, past acc = 0.256813, fut acc = 0.148434 
+[epoch 2.093897]: epoch loss = 0.657032, ce loss = 0.000000, past acc = 0.249376, fut acc = 0.148656 
+[epoch 2.117371]: epoch loss = 0.645580, ce loss = 0.000000, past acc = 0.237897, fut acc = 0.151855 
+[epoch 2.140845]: epoch loss = 0.642973, ce loss = 0.000000, past acc = 0.244048, fut acc = 0.152905 
+[epoch 2.164319]: epoch loss = 0.643833, ce loss = 0.000000, past acc = 0.246851, fut acc = 0.158147 
+[epoch 2.187793]: epoch loss = 0.635902, ce loss = 0.000000, past acc = 0.246598, fut acc = 0.152363 
+[epoch 2.211268]: epoch loss = 0.646487, ce loss = 0.000000, past acc = 0.246549, fut acc = 0.149270 
+[epoch 2.234742]: epoch loss = 0.645848, ce loss = 0.000000, past acc = 0.249294, fut acc = 0.156780 
+[epoch 2.258216]: epoch loss = 0.650557, ce loss = 0.000000, past acc = 0.251723, fut acc = 0.160803 
+[epoch 2.281690]: epoch loss = 0.642305, ce loss = 0.000000, past acc = 0.254575, fut acc = 0.159872 
+[epoch 2.305164]: epoch loss = 0.655381, ce loss = 0.000000, past acc = 0.251965, fut acc = 0.157191 
+[epoch 2.328638]: epoch loss = 0.655757, ce loss = 0.000000, past acc = 0.253901, fut acc = 0.156559 
+[epoch 2.352113]: epoch loss = 0.651466, ce loss = 0.000000, past acc = 0.253844, fut acc = 0.158005 
+[epoch 2.375587]: epoch loss = 0.650400, ce loss = 0.000000, past acc = 0.252536, fut acc = 0.159387 
+[epoch 2.399061]: epoch loss = 0.643714, ce loss = 0.000000, past acc = 0.249822, fut acc = 0.160123 
+[epoch 2.422535]: epoch loss = 0.641022, ce loss = 0.000000, past acc = 0.245721, fut acc = 0.155756 
+[epoch 2.446009]: epoch loss = 0.639771, ce loss = 0.000000, past acc = 0.244595, fut acc = 0.153876 
+[epoch 2.469484]: epoch loss = 0.639918, ce loss = 0.000000, past acc = 0.245618, fut acc = 0.154384 
+[epoch 2.492958]: epoch loss = 0.635237, ce loss = 0.000000, past acc = 0.249323, fut acc = 0.155216 
+[epoch 2.516432]: epoch loss = 0.633613, ce loss = 0.000000, past acc = 0.249804, fut acc = 0.157641 
+[epoch 2.539906]: epoch loss = 0.627779, ce loss = 0.000000, past acc = 0.251533, fut acc = 0.160779 
+[epoch 2.563380]: epoch loss = 0.628898, ce loss = 0.000000, past acc = 0.252147, fut acc = 0.159107 
+[epoch 2.586854]: epoch loss = 0.624501, ce loss = 0.000000, past acc = 0.250729, fut acc = 0.162371 
+[epoch 2.610329]: epoch loss = 0.622399, ce loss = 0.000000, past acc = 0.252437, fut acc = 0.163980 
+[epoch 2.633803]: epoch loss = 0.617285, ce loss = 0.000000, past acc = 0.256107, fut acc = 0.165756 
+[epoch 2.657277]: epoch loss = 0.615378, ce loss = 0.000000, past acc = 0.258496, fut acc = 0.166488 
+[epoch 2.680751]: epoch loss = 0.615828, ce loss = 0.000000, past acc = 0.260723, fut acc = 0.166848 
+[epoch 2.704225]: epoch loss = 0.611691, ce loss = 0.000000, past acc = 0.261710, fut acc = 0.166668 
+[epoch 2.727700]: epoch loss = 0.613031, ce loss = 0.000000, past acc = 0.262242, fut acc = 0.166533 
+[epoch 2.751174]: epoch loss = 0.614083, ce loss = 0.000000, past acc = 0.265188, fut acc = 0.167571 
+[epoch 2.774648]: epoch loss = 0.612839, ce loss = 0.000000, past acc = 0.265869, fut acc = 0.166218 
+[epoch 2.798122]: epoch loss = 0.613248, ce loss = 0.000000, past acc = 0.265708, fut acc = 0.164618 
+[epoch 2.821596]: epoch loss = 0.614030, ce loss = 0.000000, past acc = 0.268115, fut acc = 0.165793 
+[epoch 2.845070]: epoch loss = 0.612398, ce loss = 0.000000, past acc = 0.268680, fut acc = 0.164179 
+[epoch 2.868545]: epoch loss = 0.612011, ce loss = 0.000000, past acc = 0.269233, fut acc = 0.162959 
+[epoch 2.892019]: epoch loss = 0.611057, ce loss = 0.000000, past acc = 0.269369, fut acc = 0.163126 
+[epoch 2.915493]: epoch loss = 0.609130, ce loss = 0.000000, past acc = 0.270670, fut acc = 0.163830 
+[epoch 2.938967]: epoch loss = 0.605819, ce loss = 0.000000, past acc = 0.271794, fut acc = 0.165772 
+[epoch 2.962441]: epoch loss = 0.603283, ce loss = 0.000000, past acc = 0.273581, fut acc = 0.168155 
+[epoch 2.985915]: epoch loss = 0.600933, ce loss = 0.000000, past acc = 0.276235, fut acc = 0.171849 
+Current learning rate : 0.0005
+[epoch 2]: epoch loss = 0.601370,  acc = 0.212057
+training in the loop for  213  number of loops
+[epoch 3.000000]: epoch loss = 0.717575, ce loss = 0.000000, past acc = 0.364436, fut acc = 0.015750 
+[epoch 3.023474]: epoch loss = 0.579285, ce loss = 0.000000, past acc = 0.330974, fut acc = 0.222222 
+[epoch 3.046948]: epoch loss = 0.568646, ce loss = 0.000000, past acc = 0.325749, fut acc = 0.194064 
+[epoch 3.070423]: epoch loss = 0.571543, ce loss = 0.000000, past acc = 0.320226, fut acc = 0.213807 
+[epoch 3.093897]: epoch loss = 0.554239, ce loss = 0.000000, past acc = 0.309377, fut acc = 0.186107 
+[epoch 3.117371]: epoch loss = 0.534874, ce loss = 0.000000, past acc = 0.312043, fut acc = 0.179104 
+[epoch 3.140845]: epoch loss = 0.534423, ce loss = 0.000000, past acc = 0.311774, fut acc = 0.173805 
+[epoch 3.164319]: epoch loss = 0.523734, ce loss = 0.000000, past acc = 0.316938, fut acc = 0.187949 
+[epoch 3.187793]: epoch loss = 0.519361, ce loss = 0.000000, past acc = 0.322030, fut acc = 0.193864 
+[epoch 3.211268]: epoch loss = 0.523837, ce loss = 0.000000, past acc = 0.325117, fut acc = 0.194095 
+[epoch 3.234742]: epoch loss = 0.528323, ce loss = 0.000000, past acc = 0.320070, fut acc = 0.190544 
+[epoch 3.258216]: epoch loss = 0.527126, ce loss = 0.000000, past acc = 0.322134, fut acc = 0.195140 
+[epoch 3.281690]: epoch loss = 0.519464, ce loss = 0.000000, past acc = 0.322829, fut acc = 0.199007 
+[epoch 3.305164]: epoch loss = 0.518145, ce loss = 0.000000, past acc = 0.321965, fut acc = 0.199905 
+[epoch 3.328638]: epoch loss = 0.512412, ce loss = 0.000000, past acc = 0.325153, fut acc = 0.203987 
+[epoch 3.352113]: epoch loss = 0.517811, ce loss = 0.000000, past acc = 0.323349, fut acc = 0.202015 
+[epoch 3.375587]: epoch loss = 0.525383, ce loss = 0.000000, past acc = 0.326694, fut acc = 0.207349 
+[epoch 3.399061]: epoch loss = 0.522364, ce loss = 0.000000, past acc = 0.327274, fut acc = 0.205514 
+[epoch 3.422535]: epoch loss = 0.523337, ce loss = 0.000000, past acc = 0.330017, fut acc = 0.205510 
+[epoch 3.446009]: epoch loss = 0.527355, ce loss = 0.000000, past acc = 0.332196, fut acc = 0.205111 
+[epoch 3.469484]: epoch loss = 0.528980, ce loss = 0.000000, past acc = 0.333309, fut acc = 0.204397 
+[epoch 3.492958]: epoch loss = 0.525600, ce loss = 0.000000, past acc = 0.334123, fut acc = 0.207253 
+[epoch 3.516432]: epoch loss = 0.522506, ce loss = 0.000000, past acc = 0.334900, fut acc = 0.210799 
+[epoch 3.539906]: epoch loss = 0.520255, ce loss = 0.000000, past acc = 0.335283, fut acc = 0.211083 
+[epoch 3.563380]: epoch loss = 0.520163, ce loss = 0.000000, past acc = 0.336317, fut acc = 0.214060 
+[epoch 3.586854]: epoch loss = 0.518748, ce loss = 0.000000, past acc = 0.339242, fut acc = 0.214332 
+[epoch 3.610329]: epoch loss = 0.519102, ce loss = 0.000000, past acc = 0.339932, fut acc = 0.213335 
+[epoch 3.633803]: epoch loss = 0.516906, ce loss = 0.000000, past acc = 0.342420, fut acc = 0.210901 
+[epoch 3.657277]: epoch loss = 0.514955, ce loss = 0.000000, past acc = 0.342689, fut acc = 0.209263 
+[epoch 3.680751]: epoch loss = 0.516834, ce loss = 0.000000, past acc = 0.341978, fut acc = 0.208975 
+[epoch 3.704225]: epoch loss = 0.519946, ce loss = 0.000000, past acc = 0.342353, fut acc = 0.207474 
+[epoch 3.727700]: epoch loss = 0.518116, ce loss = 0.000000, past acc = 0.342309, fut acc = 0.206834 
+[epoch 3.751174]: epoch loss = 0.519904, ce loss = 0.000000, past acc = 0.343364, fut acc = 0.206127 
+[epoch 3.774648]: epoch loss = 0.519859, ce loss = 0.000000, past acc = 0.343718, fut acc = 0.206431 
+[epoch 3.798122]: epoch loss = 0.520210, ce loss = 0.000000, past acc = 0.343073, fut acc = 0.205311 
+[epoch 3.821596]: epoch loss = 0.520115, ce loss = 0.000000, past acc = 0.342959, fut acc = 0.204361 
+[epoch 3.845070]: epoch loss = 0.520618, ce loss = 0.000000, past acc = 0.344779, fut acc = 0.204892 
+[epoch 3.868545]: epoch loss = 0.520714, ce loss = 0.000000, past acc = 0.344159, fut acc = 0.204874 
+[epoch 3.892019]: epoch loss = 0.522535, ce loss = 0.000000, past acc = 0.345445, fut acc = 0.205733 
+[epoch 3.915493]: epoch loss = 0.522509, ce loss = 0.000000, past acc = 0.345855, fut acc = 0.204392 
+[epoch 3.938967]: epoch loss = 0.522996, ce loss = 0.000000, past acc = 0.345757, fut acc = 0.206831 
+[epoch 3.962441]: epoch loss = 0.525256, ce loss = 0.000000, past acc = 0.346244, fut acc = 0.205837 
+[epoch 3.985915]: epoch loss = 0.525793, ce loss = 0.000000, past acc = 0.346311, fut acc = 0.206546 
+Current learning rate : 0.0005
+[epoch 3]: epoch loss = 0.527349,  acc = 0.259733
+training in the loop for  213  number of loops
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+slurmstepd: error: *** STEP 2471681.0 ON atl1-1-03-011-18-0 CANCELLED AT 2025-04-16T00:30:52 ***
+slurmstepd: error: *** JOB 2471681 ON atl1-1-03-011-18-0 CANCELLED AT 2025-04-16T00:30:52 ***
+---------------------------------------
+Begin Slurm Epilog: Apr-16-2025 00:30:57
+Job ID:        2471681
+User ID:       skim3513
+Account:       ece
+Job name:      run.sh
+Resources:     cpu=32,gres/gpu:h100=1,mem=128G,node=1
+Rsrc Used:     cput=07:10:24,vmem=0,walltime=00:13:27,mem=7744K,energy_used=0
+Partition:     coe-gpu
+QOS:           coe-ice
+Nodes:         atl1-1-03-011-18-0
+---------------------------------------

@@ -1,0 +1,107 @@
+---------------------------------------
+Begin Slurm Prolog: Apr-20-2025 00:58:53
+Job ID:    2500041
+User ID:   skim3513
+Account:   ece
+Job name:  run-causal.sh
+Partition: coe-gpu
+QOS:       coe-ice
+---------------------------------------
+*-----------------------------*
+    model  =  bit-diff-pred-tcn
+    layer_type  =  gated
+    bz  =  16
+    num_stages  =  5
+    obs_stages  =  0
+    ant_stages  =  5
+    kernel_size  =  3
+    num_layers  =  9
+    lr  =  0.0005
+    ds  =  bf
+    sample_rate  =  3
+    use_features  =  True
+    channel_dropout_prob  =  0.4
+    split  =  4
+*-----------------------------*
+Dir : 202504192145_bf_bit-diff-pred-tcn_os_0_as_5_m_dim_64_lt_gated_pvo_inp_ch_dr_ns_1000_lt_l2_obj_pred_x0_cond_x0_True_split_4
+Number of classes : 48
+Number of classes : 10
+Dataset: bf
+Mode : train
+Vid list file : ./datasets/breakfast/splits/train.split4.bundle
+Observation perc : 0
+Dataset: bf
+Mode : eval
+Vid list file : ./datasets/breakfast/splits/test.split4.bundle
+Observation perc : 0.2
+Dataset: bf
+Mode : eval
+Vid list file : ./datasets/breakfast/splits/test.split4.bundle
+Observation perc : 0.3
+Num classes : 48
+Loss type : l2
+Objective: pred_x0
+Beta schedule : cosine
+Start Training...
+training in the loop for  213  number of loops
+[epoch 0.000000]: epoch loss = 2.018898, ce loss = 0.000000, past acc = 0.019734, fut acc = 0.001218 
+[epoch 0.023474]: epoch loss = 1.136425, ce loss = 0.000000, past acc = 0.024450, fut acc = 0.035329 
+[epoch 0.046948]: epoch loss = 1.002088, ce loss = 0.000000, past acc = 0.021420, fut acc = 0.041457 
+[epoch 0.070423]: epoch loss = 0.901826, ce loss = 0.000000, past acc = 0.033220, fut acc = 0.077994 
+[epoch 0.093897]: epoch loss = 0.838196, ce loss = 0.000000, past acc = 0.053226, fut acc = 0.093801 
+[epoch 0.117371]: epoch loss = 0.810559, ce loss = 0.000000, past acc = 0.066109, fut acc = 0.095774 
+[epoch 0.140845]: epoch loss = 0.755332, ce loss = 0.000000, past acc = 0.080661, fut acc = 0.110933 
+[epoch 0.164319]: epoch loss = 0.729721, ce loss = 0.000000, past acc = 0.106115, fut acc = 0.131217 
+[epoch 0.187793]: epoch loss = 0.701933, ce loss = 0.000000, past acc = 0.118182, fut acc = 0.139211 
+[epoch 0.211268]: epoch loss = 0.676539, ce loss = 0.000000, past acc = 0.132744, fut acc = 0.144904 
+[epoch 0.234742]: epoch loss = 0.671945, ce loss = 0.000000, past acc = 0.142320, fut acc = 0.138546 
+[epoch 0.258216]: epoch loss = 0.664611, ce loss = 0.000000, past acc = 0.156627, fut acc = 0.138673 
+[epoch 0.281690]: epoch loss = 0.646335, ce loss = 0.000000, past acc = 0.161921, fut acc = 0.140707 
+[epoch 0.305164]: epoch loss = 0.637965, ce loss = 0.000000, past acc = 0.169310, fut acc = 0.143847 
+[epoch 0.328638]: epoch loss = 0.630581, ce loss = 0.000000, past acc = 0.175450, fut acc = 0.148078 
+[epoch 0.352113]: epoch loss = 0.628617, ce loss = 0.000000, past acc = 0.183513, fut acc = 0.155592 
+[epoch 0.375587]: epoch loss = 0.620048, ce loss = 0.000000, past acc = 0.194125, fut acc = 0.160264 
+[epoch 0.399061]: epoch loss = 0.621942, ce loss = 0.000000, past acc = 0.196324, fut acc = 0.160745 
+[epoch 0.422535]: epoch loss = 0.611949, ce loss = 0.000000, past acc = 0.205003, fut acc = 0.168598 
+[epoch 0.446009]: epoch loss = 0.608575, ce loss = 0.000000, past acc = 0.211207, fut acc = 0.172649 
+[epoch 0.469484]: epoch loss = 0.603608, ce loss = 0.000000, past acc = 0.215116, fut acc = 0.172995 
+[epoch 0.492958]: epoch loss = 0.595507, ce loss = 0.000000, past acc = 0.219222, fut acc = 0.174601 
+[epoch 0.516432]: epoch loss = 0.587983, ce loss = 0.000000, past acc = 0.226175, fut acc = 0.182170 
+[epoch 0.539906]: epoch loss = 0.584740, ce loss = 0.000000, past acc = 0.232025, fut acc = 0.186510 
+[epoch 0.563380]: epoch loss = 0.577429, ce loss = 0.000000, past acc = 0.237992, fut acc = 0.191199 
+[epoch 0.586854]: epoch loss = 0.576236, ce loss = 0.000000, past acc = 0.246425, fut acc = 0.197200 
+[epoch 0.610329]: epoch loss = 0.573634, ce loss = 0.000000, past acc = 0.251845, fut acc = 0.199080 
+[epoch 0.633803]: epoch loss = 0.568167, ce loss = 0.000000, past acc = 0.255427, fut acc = 0.205009 
+[epoch 0.657277]: epoch loss = 0.562999, ce loss = 0.000000, past acc = 0.259473, fut acc = 0.206062 
+[epoch 0.680751]: epoch loss = 0.559439, ce loss = 0.000000, past acc = 0.263924, fut acc = 0.208148 
+[epoch 0.704225]: epoch loss = 0.556407, ce loss = 0.000000, past acc = 0.266725, fut acc = 0.211141 
+[epoch 0.727700]: epoch loss = 0.554088, ce loss = 0.000000, past acc = 0.269475, fut acc = 0.212060 
+[epoch 0.751174]: epoch loss = 0.555252, ce loss = 0.000000, past acc = 0.272298, fut acc = 0.214359 
+[epoch 0.774648]: epoch loss = 0.554004, ce loss = 0.000000, past acc = 0.279182, fut acc = 0.217595 
+[epoch 0.798122]: epoch loss = 0.551867, ce loss = 0.000000, past acc = 0.282428, fut acc = 0.220126 
+[epoch 0.821596]: epoch loss = 0.550843, ce loss = 0.000000, past acc = 0.285003, fut acc = 0.220071 
+[epoch 0.845070]: epoch loss = 0.548268, ce loss = 0.000000, past acc = 0.287753, fut acc = 0.222723 
+[epoch 0.868545]: epoch loss = 0.546840, ce loss = 0.000000, past acc = 0.290342, fut acc = 0.224108 
+[epoch 0.892019]: epoch loss = 0.545390, ce loss = 0.000000, past acc = 0.292344, fut acc = 0.227047 
+[epoch 0.915493]: epoch loss = 0.544560, ce loss = 0.000000, past acc = 0.296182, fut acc = 0.230175 
+[epoch 0.938967]: epoch loss = 0.542085, ce loss = 0.000000, past acc = 0.298464, fut acc = 0.232994 
+[epoch 0.962441]: epoch loss = 0.541467, ce loss = 0.000000, past acc = 0.301905, fut acc = 0.233480 
+[epoch 0.985915]: epoch loss = 0.542832, ce loss = 0.000000, past acc = 0.305460, fut acc = 0.236507 
+Current learning rate : 0.0005
+[epoch 0]: epoch loss = 0.542830,  acc = 0.263607
+training in the loop for  213  number of loops
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+slurmstepd: error: *** JOB 2500041 ON atl1-1-03-014-16-0 CANCELLED AT 2025-04-20T01:01:46 ***
+slurmstepd: error: *** STEP 2500041.0 ON atl1-1-03-014-16-0 CANCELLED AT 2025-04-20T01:01:46 ***
+---------------------------------------
+Begin Slurm Epilog: Apr-20-2025 01:01:51
+Job ID:        2500041
+User ID:       skim3513
+Account:       ece
+Job name:      run-causal.sh
+Resources:     cpu=32,gres/gpu:h200=1,mem=128G,node=1
+Rsrc Used:     cput=01:33:52,vmem=0,walltime=00:02:56,mem=9424K,energy_used=0
+Partition:     coe-gpu
+QOS:           coe-ice
+Nodes:         atl1-1-03-014-16-0
+---------------------------------------
