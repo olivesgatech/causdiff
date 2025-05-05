@@ -11,7 +11,7 @@ from einops import repeat, rearrange
 from torch import nn
 from tqdm import tqdm
 
-ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
+ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
 
 class DiffusionModel(nn.Module):
@@ -399,8 +399,11 @@ class GaussianBitDiffusion(nn.Module):
         elif self.objective == "pred_x0":
             pred_x_start = model_output
             pred_noise = self.predict_noise_from_start(x, t, pred_x_start) * stage_masks[-1]
+
+        pred_goal_start = infer_goal
+        pred_goal_noise = self.predict_noise_from_start(x, t, pred_goal_start) * stage_masks[-1]
             
-        return ModelPrediction(pred_noise, pred_x_start)
+        return ModelPrediction(pred_noise, pred_x_start, pred_goal_noise, pred_goal_start)
 
 
 
@@ -425,6 +428,9 @@ class GaussianBitDiffusion(nn.Module):
         pred_x_start = preds.pred_x_start
         pred_noise = preds.pred_noise
 
+        pred_goal_start = preds.pred_goal_start
+        pred_goal_noise = preds.pred_goal_noise
+
         # PRED X_0
         alpha_bar = extract(self.alphas_cumprod, t, x.shape)
         if if_prev:
@@ -445,7 +451,29 @@ class GaussianBitDiffusion(nn.Module):
         )
 
         nonzero_mask = (1 - (t == 0).float()).reshape(x.shape[0], *((1,) * (len(x.shape) - 1)))
-        return mean_pred + nonzero_mask * sigma * noise, pred_x_start
+
+
+        # PRED goal
+        alpha_bar_goal = extract(self.alphas_cumprod, t, gt_goal_one_hot.shape)
+        if if_prev:
+            alpha_bar_prev_goal = extract(self.alphas_cumprod_prev, t_prev, gt_goal_one_hot.shape)
+        else:
+            alpha_bar_prev_goal = extract(self.alphas_cumprod, t_prev, gt_goal_one_hot.shape)
+        sigma_goal = (
+                self.eta
+                * torch.sqrt((1 - alpha_bar_prev_goal) / (1 - alpha_bar_goal))
+                * torch.sqrt(1 - alpha_bar_goal / alpha_bar_prev_goal)
+        )
+
+        # Compute mean and var
+        noise_goal = torch.randn_like(x) 
+        mean_pred_goal = (
+                pred_goal_start * torch.sqrt(alpha_bar_prev_goal)
+                + torch.sqrt(1 - alpha_bar_prev_goal - sigma_goal ** 2) * pred_goal_noise
+        )
+
+        nonzero_mask_goal = (1 - (t == 0).float()).reshape(gt_goal_one_hot.shape[0], *((1,) * (len(gt_goal_one_hot.shape) - 1)))
+        return mean_pred + nonzero_mask * sigma * noise, pred_x_start, mean_pred_goal+nonzero_mask_goal*sigma_goal*noise_goal, pred_goal_start
 
    
 
