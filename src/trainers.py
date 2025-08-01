@@ -38,7 +38,13 @@ class TrainerTCN:
 
             ''' LOSSES '''
             # Losses
+            #self.ignore_indices = [self.num_classes + 1]
+            #self.ignore_indices = [self.num_classes + 1, 10] ###################### (Utkinect 10)
+            #self.ignore_indices = [self.num_classes + 1, 16] ###################### (DARAI 16)
+            self.ignore_indices = [self.num_classes + 1, 47] ###################### (DARAI 47)
             self.ce = nn.CrossEntropyLoss(ignore_index=self.num_classes+1, reduction='none')
+            #self.ce = nn.CrossEntropyLoss(reduction='none')
+
 
         elif self.m_name == 'bit-diff-pred-tcn':
             self.prob = True
@@ -240,8 +246,26 @@ class TrainerTCN:
             loss, ce_loss = 0, 0
             for st, p in enumerate(tcn_predictions):
                 # CE
-                ce = self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), classes_tensor.view(-1))  # BT x C
-                ce = torch.sum(ce * masks[st].transpose(2, 1).view(-1)) / torch.sum(masks[st])
+                #ce = self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), classes_tensor.view(-1))  # BT x C
+                
+                target = classes_tensor.view(-1)
+                valid_mask = torch.ones_like(target, dtype=torch.bool)
+                for idx in self.ignore_indices:
+                    valid_mask &= (target != idx)
+                time_mask = masks[st].transpose(2, 1).contiguous().view(-1)
+                # final_mask = valid_mask & (time_mask > 0)
+
+                # #ce = torch.sum(ce * time_mask) / torch.sum(masks[st])
+                # ce = torch.sum(ce * time_mask) / torch.sum(final_mask)
+                
+                pred = p.transpose(2, 1).contiguous().view(-1, self.num_classes)  # [B*T, C]
+
+                final_mask = valid_mask & (time_mask > 0)
+
+                pred = pred[final_mask]
+                target = target[final_mask]
+
+                ce = F.cross_entropy(pred, target, reduction='mean')
                 loss += ce
                 ce_loss += ce
 

@@ -7,7 +7,10 @@ import numpy as np
 import torch
 
 from trainers import TrainerTCN
-from batch_gen import BatchGeneratorTCN
+#from batch_gen import BatchGeneratorTCN
+from batch_gen_darai import BatchGeneratorTCN
+#from batch_gen_nturgbd import BatchGeneratorTCN
+#from batch_gen_utkinects import BatchGeneratorTCN
 from batch_gen_assembly import BatchGeneratorAssembly101TCN
 
 from torch.utils.tensorboard import SummaryWriter
@@ -176,7 +179,7 @@ if args.ds != 'assembly':
     args.num_classes_coarse = num_classes_coarse
     print(f'Number of classes : {args.num_classes_coarse}')
     
-    
+    #goals_dict = actions_dict
 
 # Data loaders
 pred_perc = .5
