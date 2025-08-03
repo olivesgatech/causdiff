@@ -174,83 +174,36 @@ class GaussianBitDiffusion(nn.Module):
         for param in self.clip.parameters():
             param.requires_grad = False
     
-    def semantic_consistency_loss(self, subgoals, actions, global_goal):
+    def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
-        subgoals: (S,B, T, 10) - 각 timestamp의 subgoal
-        actions: (S,B, T, 48) - 각 timestamp의 action
-        global_goal: (B, 10) - 전체 goal
+        subgoal_features: (S,B,T,D) - semantic features from DiffSingleStageModel
+        global_goal: (B,C) - one-hot encoded global goal
         """
-        S, B, T, C = subgoals.shape
-        batch_size = 128
-
-        # 결과를 저장할 변수들
-        total_subgoal_action_sim = 0
-        total_subgoal_goal_sim = 0
-        num_batches = 0
-
-        # 배치 단위로 처리
-        for start_idx in range(0, S*B*T, batch_size):
-            end_idx = min(start_idx + batch_size, S*B*T)
-            current_batch_size = end_idx - start_idx
-            
-            # 현재 배치에 대한 클래스 인덱스 추출
-            subgoal_classes = subgoals.reshape(-1, C)[start_idx:end_idx].argmax(dim=-1)
-            action_classes = actions.reshape(-1, C)[start_idx:end_idx].argmax(dim=-1)
-            
-            # 텍스트 토큰 생성
-            subgoal_texts = [f"action {idx.item()}" for idx in subgoal_classes]
-            action_texts = [f"action {idx.item()}" for idx in action_classes]
-            
-            # CLIP 토큰화 및 인코딩
-            with torch.amp.autocast('cuda'):  # Updated autocast
-                subgoal_tokens = clip.tokenize(subgoal_texts).to(subgoals.device)
-                action_tokens = clip.tokenize(action_texts).to(actions.device)
-                
-                # CLIP 인코딩
-                subgoal_features = self.clip.encode_text(subgoal_tokens)
-                action_features = self.clip.encode_text(action_tokens)
-                
-                # Subgoal-Action similarity
-                batch_subgoal_action_sim = F.cosine_similarity(subgoal_features, action_features, dim=-1)
-                total_subgoal_action_sim += batch_subgoal_action_sim.sum()
-                
-                # Global goal similarity
-                if start_idx == 0:  # Process global goal only once
-                    global_goal_classes = global_goal.argmax(dim=-1)
-                    global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
-                    global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
-                    global_goal_features = self.clip.encode_text(global_goal_tokens)
-                    
-                    # Expand global goal features
-                    global_goal_features = global_goal_features.unsqueeze(1)  # (B, 1, clip_dim)
-                    
-                    # Calculate similarity with current batch of subgoals
-                    batch_subgoal_goal_sim = F.cosine_similarity(
-                        subgoal_features, 
-                        global_goal_features.expand(-1, current_batch_size, -1),
-                        dim=-1
-                    )
-                    total_subgoal_goal_sim += batch_subgoal_goal_sim.sum()
-            
-            # 메모리 즉시 해제
-            del subgoal_features, action_features
-            torch.cuda.empty_cache()
-            
-            num_batches += 1
-
-        # Final loss computation (as tensors)
-        avg_subgoal_action_sim = total_subgoal_action_sim / (S*B*T)
-        avg_subgoal_goal_sim = total_subgoal_goal_sim / (S*B*T)
+        S, B, T, D = subgoal_features.shape
         
-        loss_semantic = (
-            (1 - avg_subgoal_action_sim) +  # subgoal-action alignment
-            (1 - avg_subgoal_goal_sim)      # subgoal-global goal alignment
-        )
-        
-        # Clear any remaining cache
-        torch.cuda.empty_cache()
-        
-        return loss_semantic
+        # Get global goal features (only once)
+        with torch.amp.autocast('cuda'):
+            global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
+            global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
+            global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
+            global_goal_features = self.clip.encode_text(global_goal_tokens)  # (B, 512)
+            
+            # Expand global goal features to match subgoal shape
+            # (B, 512) -> (B, 1, 512) -> (B, T, 512)
+            global_goal_features = global_goal_features.unsqueeze(1).expand(-1, T, -1)
+            # (B, T, 512) -> (1, B, T, 512) -> (S, B, T, 512)
+            global_goal_features = global_goal_features.unsqueeze(0).expand(S, -1, -1, -1)
+            
+            # Now both tensors are (S, B, T, D)
+            similarity = F.cosine_similarity(
+                subgoal_features,
+                global_goal_features,
+                dim=-1  # compute similarity along feature dimension
+            )  # (S, B, T)
+            
+            loss = 1 - similarity.mean()
+            
+        return loss
     
     @property
     def loss_fn(self):
@@ -328,10 +281,12 @@ class GaussianBitDiffusion(nn.Module):
         obs_cond = obs * mask_past
 
         # SELF-CONDITIONING
-        self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
+        #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
+        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
+
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
-                infer_goal = self.goalmodel(
+                _, infer_goal = self.goalmodel(
                     x=goal_t, 
                     t=t, 
                     stage_masks=mask_all,
@@ -339,9 +294,9 @@ class GaussianBitDiffusion(nn.Module):
                     self_cond=self_cond,
                 )
                 self_cond = infer_goal[-1].detach()
-
+                #print("self cond shape: ", self_cond.shape)
         # REVERSE STEP
-        model_out_goal = self.goalmodel(
+        _, model_out_goal = self.goalmodel(
             x=goal_t,
             t=t,
             stage_masks=mask_all,
@@ -361,16 +316,19 @@ class GaussianBitDiffusion(nn.Module):
         # SELF-CONDITIONING
         if torch.rand((1)) < 0.5 and self.condition_x0:
             self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
-
+            # (B, T, C)
+            #print(model_out_goal.shape, x_0.shape, "--------------------*****")
             with torch.no_grad():
-                self_cond = self.model(
+                self_cond, _ = self.model(
                     x=x_t, 
                     t=t, 
                     stage_masks=mask_all,
                     obs_cond=obs_cond, 
                     self_cond=self_cond
-                )[-1]
+                )
+                self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
+            #print(self_cond.shape, "******************")
                 
         else:
             self_cond = torch.zeros_like(x_0).to(x_0.device)
@@ -384,7 +342,7 @@ class GaussianBitDiffusion(nn.Module):
         self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
         
         # REVERSE STEP
-        model_out = self.model(
+        model_out,_ = self.model(
             x=x_t,
             t=t,
             stage_masks=mask_all,
@@ -412,8 +370,7 @@ class GaussianBitDiffusion(nn.Module):
                 ### goal diffusion: goal_logits (S x B x 1 x C)
                 ### action diffusion: model_out (S x B x T x C)
                 loss_goal = self.semantic_consistency_loss(
-                    subgoals=subgoal_seq, 
-                    actions=model_out, 
+                    subgoal_features=subgoal_seq,
                     global_goal=gt_goal_one_hot
                 )
                 #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
@@ -466,12 +423,13 @@ class GaussianBitDiffusion(nn.Module):
         ###################################################################################
         goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
 
-        infer_goal = self.goalmodel(
+        _, infer_goal = self.goalmodel(
             x=goal_t, 
             t=t, 
             stage_masks=stage_masks,
             obs_cond=obs,
-            self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
+            #self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
+            self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
         )[-1]
         
         self_cond = torch.cat([self_cond, infer_goal], dim=2)
@@ -479,7 +437,7 @@ class GaussianBitDiffusion(nn.Module):
         ##################################################################################
         
         # PRED
-        model_output = self.model(
+        model_output,_ = self.model(
             x=x_t,
             t=t,
             stage_masks=stage_masks,

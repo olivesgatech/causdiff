@@ -57,7 +57,7 @@ class BitDiffPredictorTCN(nn.Module):
         obs_cond = rearrange(obs_cond, 'b t c -> b c t')
         self_cond = rearrange(self_cond, 'b t c -> b c t')
         stage_masks = [rearrange(mask, "b t c -> b c t") for mask in stage_masks]
-       
+        #print(obs_cond.shape, self_cond.shape, "-----")
         if self.use_inp_ch_dropout:
             x = self.channel_dropout(x)
         
@@ -65,10 +65,12 @@ class BitDiffPredictorTCN(nn.Module):
         
         x = torch.cat((x, obs_cond), dim=1)
         x = torch.cat((x, self_cond), dim=1)
+
+        #print("x shape: ", x.shape)
         
-        frame_wise_pred, _ = self.ms_tcn(x, t, stage_masks)
+        frame_wise_pred, frame_wise_feature = self.ms_tcn(x, t, stage_masks)
         frame_wise_pred = rearrange(frame_wise_pred, "s b c t -> s b t c")
-        return frame_wise_pred
+        return frame_wise_pred, frame_wise_feature
 
 
 
@@ -122,6 +124,7 @@ class DiffMultiStageModel(nn.Module):
     def forward(self, x, t, stage_masks):
         out, out_features = self.stage1(x, t, stage_masks[0])
         outputs = out.unsqueeze(0)
+        output_features = out_features.unsqueeze(0)
      
         for sn, s in enumerate(self.stages):
             if self.use_features:
@@ -129,8 +132,9 @@ class DiffMultiStageModel(nn.Module):
             else:
                 out, out_features = s(F.softmax(out, dim=1) * stage_masks[sn], t, stage_masks[sn])
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
+            output_features = torch.cat((output_features, out_features.unsqueeze(0)), dim=0)
 
-        return outputs, out_features
+        return outputs, output_features
 
 
 
@@ -179,6 +183,13 @@ class DiffSingleStageModel(nn.Module):
             ]
         )
 
+        # Feature projection layer for semantic space
+        self.feature_proj = nn.Sequential(
+            nn.Conv1d(num_f_maps, 512, 1),  # CLIP text dimension과 맞추기
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+
         self.conv_out = nn.Conv1d(num_f_maps, num_classes, 1)
 
         
@@ -193,10 +204,14 @@ class DiffSingleStageModel(nn.Module):
         for layer in self.layers:
             out = layer(out, time, mask)
 
+        # Get rich semantic features
+        semantic_features = self.feature_proj(out) * mask  # (B, 512, T)
+        semantic_features = rearrange(semantic_features, 'b c t -> b t c')  # (B, T, 512)
+
         # output
-        out_features = out * mask
-        out_logits = self.conv_out(out) * mask
-        return out_logits, out_features
+        out_features = out * mask # (16, 64, 1816)
+        out_logits = self.conv_out(out) * mask # (16, 10, 1816)/(16, 48, 1816)
+        return out_logits, semantic_features#out_features
 
 
 
