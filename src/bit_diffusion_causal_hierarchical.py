@@ -181,57 +181,71 @@ class GaussianBitDiffusion(nn.Module):
         global_goal: (B, 10) - 전체 goal
         """
         S,B, T, C = subgoals.shape
-        subgoal_classes = subgoals.argmax(dim=-1)  # (S, B, T)
-        action_classes = actions.argmax(dim=-1)     # (S, B, T)
-        global_goal = global_goal.view(B, C)
-        global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
+        batch_size = 128
 
-        # Convert class indices to text tokens
-        subgoal_texts = [f"action {idx.item()}" for idx in subgoal_classes.view(-1)]
-        action_texts = [f"action {idx.item()}" for idx in action_classes.view(-1)]
-        global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
+        # Gradient checkpointing 적용
+        if not hasattr(self, 'clip_with_checkpoint'):
+            self.clip_with_checkpoint = torch.utils.checkpoint.checkpoint_wrapper(self.clip)
         
-        # Convert to CLIP tokens
-        subgoal_tokens = clip.tokenize(subgoal_texts).to(subgoals.device)  # (S*B*T, max_tokens)
-        action_tokens = clip.tokenize(action_texts).to(actions.device)      # (S*B*T, max_tokens)
-        global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)  # (B, max_tokens)
+        # 결과를 저장할 변수들
+        total_subgoal_action_sim = 0
+        total_subgoal_goal_sim = 0
+        num_batches = 0
 
-        # # Make tensors contiguous and reshape for CLIP encoding
-        # subgoals = subgoals.contiguous().reshape(S*B*T, C)  # (S*B*T, C)
-        # actions = actions.contiguous().reshape(S*B*T, -1)     # (S*B*T, C)
-
-        #assert global_goal.shape == (B, C), "Global goal must have shape (B, C)"
-        # CLIP 인코딩
-        subgoal_features = self.clip.encode_text(subgoal_tokens)  # (B*T, clip_dim)
-        action_features = self.clip.encode_text(action_tokens)      # (B*T, clip_dim)
-        global_goal_features = self.clip.encode_text(global_goal_tokens)                         # (B, clip_dim)
+        # 배치 단위로 처리
+        for start_idx in range(0, S*B*T, batch_size):
+            end_idx = min(start_idx + batch_size, S*B*T)
+            current_batch_size = end_idx - start_idx
+            
+            # 현재 배치에 대한 클래스 인덱스 추출
+            subgoal_classes = subgoals.reshape(-1, C)[start_idx:end_idx].argmax(dim=-1)
+            action_classes = actions.reshape(-1, C)[start_idx:end_idx].argmax(dim=-1)
+            
+            # 텍스트 토큰 생성
+            subgoal_texts = [f"action {idx.item()}" for idx in subgoal_classes]
+            action_texts = [f"action {idx.item()}" for idx in action_classes]
+            
+            # CLIP 토큰화
+            with torch.cuda.amp.autocast():  # mixed precision
+                subgoal_tokens = clip.tokenize(subgoal_texts).to(subgoals.device)
+                action_tokens = clip.tokenize(action_texts).to(actions.device)
+                
+                # CLIP 인코딩 (with gradient checkpointing)
+                subgoal_features = self.clip_with_checkpoint(subgoal_tokens)
+                action_features = self.clip_with_checkpoint(action_tokens)
+                
+                # Cosine similarity 계산
+                batch_sim = F.cosine_similarity(subgoal_features, action_features, dim=-1)
+                total_subgoal_action_sim += batch_sim.sum()
+            
+            # 메모리 즉시 해제
+            del subgoal_features, action_features
+            torch.cuda.empty_cache()
+            
+            num_batches += 1
         
-        # Reshape back
-        subgoal_features = subgoal_features.view(B, T, -1)  # (B, T, clip_dim)
-        action_features = action_features.view(B, T, -1)     # (B, T, clip_dim)
+        # Global goal processing (한 번만 처리)
+        with torch.cuda.amp.autocast():
+            global_goal_classes = global_goal.argmax(dim=-1)
+            global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
+            global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
+            global_goal_features = self.clip_with_checkpoint(global_goal_tokens)
+            
+            # Reshape and expand global goal features
+            global_goal_features = global_goal_features.view(B, 1, -1)
+            global_goal_features = global_goal_features.expand(-1, T, -1)
         
-        # 1. Subgoal-Action Consistency
-        subgoal_action_sim = F.cosine_similarity(
-            subgoal_features, 
-            action_features,
-            dim=-1
-        )  # (B, T)
+        # Final loss computation
+        avg_subgoal_action_sim = total_subgoal_action_sim / (S*B*T)
+        avg_subgoal_goal_sim = total_subgoal_goal_sim / (S*B*T)
         
-        # 2. Subgoal-Global Goal Consistency
-        global_goal_features = global_goal_features.unsqueeze(0).unsqueeze(2)  # (1, B, 1, clip_dim)
-        global_goal_features = global_goal_features.expand(S, -1, T, -1)       # (S, B, T, clip_dim)
-        
-        subgoal_goal_sim = F.cosine_similarity(
-            subgoal_features,
-            global_goal_features,
-            dim=-1
-        )  # (S, B, T)
-        
-        # Combine losses
         loss_semantic = (
-            (1 - subgoal_action_sim).mean() +  # subgoal-action alignment
-            (1 - subgoal_goal_sim).mean()      # subgoal-global goal alignment
+            (1 - avg_subgoal_action_sim).mean() +  # subgoal-action alignment
+            (1 - avg_subgoal_goal_sim).mean()      # subgoal-global goal alignment
         )
+        
+        # Clear any remaining cache
+        torch.cuda.empty_cache()
         
         return loss_semantic
 
