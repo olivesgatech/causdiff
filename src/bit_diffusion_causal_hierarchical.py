@@ -11,6 +11,8 @@ from einops import repeat, rearrange
 from torch import nn
 from tqdm import tqdm
 
+import clip
+
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
 def cosine_loss(x, y):
@@ -174,17 +176,35 @@ class GaussianBitDiffusion(nn.Module):
     
     def semantic_consistency_loss(self, subgoals, actions, global_goal):
         """
-        subgoals: (S,B, T, C) - 각 timestamp의 subgoal
-        actions: (S,B, T, C) - 각 timestamp의 action
-        global_goal: (B, C) - 전체 goal
+        subgoals: (S,B, T, 10) - 각 timestamp의 subgoal
+        actions: (S,B, T, 48) - 각 timestamp의 action
+        global_goal: (B, 10) - 전체 goal
         """
         S,B, T, C = subgoals.shape
-        assert subgoals.shape == actions.shape, "Subgoals and actions must have the same shape"
-        assert global_goal.shape == (B, C), "Global goal must have shape (B, C)"
+        subgoal_classes = subgoals.argmax(dim=-1)  # (S, B, T)
+        action_classes = actions.argmax(dim=-1)     # (S, B, T)
+        global_goal = global_goal.view(B, C)
+        global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
+
+        # Convert class indices to text tokens
+        subgoal_texts = [f"action {idx.item()}" for idx in subgoal_classes.view(-1)]
+        action_texts = [f"action {idx.item()}" for idx in action_classes.view(-1)]
+        global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
+        
+        # Convert to CLIP tokens
+        subgoal_tokens = clip.tokenize(subgoal_texts).to(subgoals.device)  # (S*B*T, max_tokens)
+        action_tokens = clip.tokenize(action_texts).to(actions.device)      # (S*B*T, max_tokens)
+        global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)  # (B, max_tokens)
+
+        # # Make tensors contiguous and reshape for CLIP encoding
+        # subgoals = subgoals.contiguous().reshape(S*B*T, C)  # (S*B*T, C)
+        # actions = actions.contiguous().reshape(S*B*T, -1)     # (S*B*T, C)
+
+        #assert global_goal.shape == (B, C), "Global goal must have shape (B, C)"
         # CLIP 인코딩
-        subgoal_features = self.clip.encode_text(subgoals.view(-1, subgoals.shape[-1]))  # (B*T, clip_dim)
-        action_features = self.clip.encode_text(actions.view(-1, actions.shape[-1]))      # (B*T, clip_dim)
-        global_goal_features = self.clip.encode_text(global_goal)                         # (B, clip_dim)
+        subgoal_features = self.clip.encode_text(subgoal_tokens)  # (B*T, clip_dim)
+        action_features = self.clip.encode_text(action_tokens)      # (B*T, clip_dim)
+        global_goal_features = self.clip.encode_text(global_goal_tokens)                         # (B, clip_dim)
         
         # Reshape back
         subgoal_features = subgoal_features.view(B, T, -1)  # (B, T, clip_dim)
@@ -281,8 +301,7 @@ class GaussianBitDiffusion(nn.Module):
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # sample: goal
-        print(gt_goal_one_hot.shape)
-        goal_start = gt_goal_one_hot
+        goal_start = gt_goal_one_hot # (16, 1816, 10)
         goal_noise = None
         goal_noise = default(goal_noise, lambda: torch.randn_like(goal_start))
         
