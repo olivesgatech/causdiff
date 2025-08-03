@@ -13,6 +13,9 @@ from tqdm import tqdm
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
+def cosine_loss(x, y):
+    cos_sim = F.cosine_similarity(x, y, dim=-1)
+    return 1 - cos_sim
 
 class DiffusionModel(nn.Module):
     """
@@ -83,6 +86,7 @@ class GaussianBitDiffusion(nn.Module):
         model: nn.Module,
         goalmodel:nn.Module,
         condition_x0:False,
+        clip_model,
         *,
         num_classes=48,
         timesteps=1000,  
@@ -163,7 +167,53 @@ class GaussianBitDiffusion(nn.Module):
         
         self.ddim_timesteps = ddim_timesteps
         self.ddim_timestep_seq = ddim_timestep_seq
+
+        self.clip = clip_model
+        for param in self.clip.parameters():
+            param.requires_grad = False
     
+    def semantic_consistency_loss(self, subgoals, actions, global_goal):
+        """
+        subgoals: (S,B, T, C) - 각 timestamp의 subgoal
+        actions: (S,B, T, C) - 각 timestamp의 action
+        global_goal: (B, C) - 전체 goal
+        """
+        S,B, T, C = subgoals.shape
+        assert subgoals.shape == actions.shape, "Subgoals and actions must have the same shape"
+        assert global_goal.shape == (B, C), "Global goal must have shape (B, C)"
+        # CLIP 인코딩
+        subgoal_features = self.clip.encode_text(subgoals.view(-1, subgoals.shape[-1]))  # (B*T, clip_dim)
+        action_features = self.clip.encode_text(actions.view(-1, actions.shape[-1]))      # (B*T, clip_dim)
+        global_goal_features = self.clip.encode_text(global_goal)                         # (B, clip_dim)
+        
+        # Reshape back
+        subgoal_features = subgoal_features.view(B, T, -1)  # (B, T, clip_dim)
+        action_features = action_features.view(B, T, -1)     # (B, T, clip_dim)
+        
+        # 1. Subgoal-Action Consistency
+        subgoal_action_sim = F.cosine_similarity(
+            subgoal_features, 
+            action_features,
+            dim=-1
+        )  # (B, T)
+        
+        # 2. Subgoal-Global Goal Consistency
+        global_goal_features = global_goal_features.unsqueeze(0).unsqueeze(2)  # (1, B, 1, clip_dim)
+        global_goal_features = global_goal_features.expand(S, -1, T, -1)       # (S, B, T, clip_dim)
+        
+        subgoal_goal_sim = F.cosine_similarity(
+            subgoal_features,
+            global_goal_features,
+            dim=-1
+        )  # (S, B, T)
+        
+        # Combine losses
+        loss_semantic = (
+            (1 - subgoal_action_sim).mean() +  # subgoal-action alignment
+            (1 - subgoal_goal_sim).mean()      # subgoal-global goal alignment
+        )
+        
+        return loss_semantic
 
     @property
     def loss_fn(self):
@@ -231,6 +281,7 @@ class GaussianBitDiffusion(nn.Module):
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # sample: goal
+        print(gt_goal_one_hot.shape)
         goal_start = gt_goal_one_hot
         goal_noise = None
         goal_noise = default(goal_noise, lambda: torch.randn_like(goal_start))
@@ -262,11 +313,12 @@ class GaussianBitDiffusion(nn.Module):
             self_cond=self_cond,
         )  # S x B x T x C
 
-        goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
+        subgoal_seq = model_out_goal # (S x B x T x C)
+        #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
         gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
-        gt_goal_one_hot = repeat(gt_goal_one_hot, 'b 1 c -> s b 1 c', s=goal_logits.shape[0])
+        # gt_goal_one_hot = repeat(gt_goal_one_hot, 'b 1 c -> s b 1 c', s=goal_logits.shape[0])
         
-        loss_goal = self.loss_fn(goal_logits, gt_goal_one_hot, reduction="none")
+        #loss_goal = self.loss_fn(goal_logits, gt_goal_one_hot, reduction="none")
         
         #self_cond = torch.zeros_like(x_0).to(x_0.device)
         #self_cond = torch.zeros_like(model_out_goal[-1]).to(model_out_goal.device)
@@ -290,7 +342,8 @@ class GaussianBitDiffusion(nn.Module):
         ## concat: 
         ## self_cond: (b,t,c)
         ## goal_logits[-1]: (b,1,c)
-        goal_repeat = goal_logits[-1].expand(-1, self_cond.shape[1], -1) # (b,1,c)->(b,t,c)
+        #goal_repeat = goal_logits[-1].expand(-1, self_cond.shape[1], -1) # (b,1,c)->(b,t,c)
+        goal_repeat = subgoal_seq[-1] # (B x T x C)
         
         self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
         
@@ -320,8 +373,17 @@ class GaussianBitDiffusion(nn.Module):
             loss = self.loss_fn(model_out, target, reduction="none")  # S x B x T x C
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
             if gt_goal is not None:
-                loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
+                loss_goal = self.semantic_consistency_loss(
+                    subgoals=subgoal_seq, 
+                    actions=model_out, 
+                    global_goal=gt_goal_one_hot
+                )
+                #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
                 loss += loss_goal
+                ### goal diffusion: goal_logits (S x B x 1 x C)
+                ### action diffusion: model_out (S x B x T x C)
+                ### 1. Temporal Chain-of-thought loss
+                temporal_cos_sim = cos
             
 
         # OUT

@@ -18,6 +18,9 @@ from ema import *
 # utils
 from evaluation import *
 
+# CLIP
+import clip
+clip_model, _ = clip.load("ViT-B/32", device='cuda')
 
 class TrainerTCN:
     def __init__(self, args, causal=False):
@@ -52,6 +55,7 @@ class TrainerTCN:
             self.diffusion = GaussianBitDiffusion(
                 self.model, self.goalmodel,
                 condition_x0=args.conditioned_x0,
+                clip_model=clip_model,
                 num_classes=self.num_classes,
                 timesteps=args.num_diff_timesteps,
                 ddim_timesteps=args.num_infr_diff_timesteps,
