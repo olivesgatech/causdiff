@@ -16,16 +16,16 @@ import clip
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])#, "pred_goal_noise", "pred_goal_start"])
 
 BREAKFAST_GOAL = {
-    0: "scrambledegg",
-    1: "tea",
-    2: "coffee",
-    3: "milk",
-    4: "friedegg",
-    5: "cereals",
-    6: "pancake",
-    7: "sandwich",
-    8: "salat",
-    9: "juice"
+    0: "a person is making scrambled egg",
+    1: "a person is making tea",
+    2: "a person is making coffee",
+    3: "a person is making milk",
+    4: "a person is making fried egg",
+    5: "a person is making cereals",
+    6: "a person is making pancake",
+    7: "a person is making sandwich",
+    8: "a person is making salat",
+    9: "a person is making juice"
 }
 
 DARAI_GOAL = {
@@ -36,6 +36,14 @@ DARAI_GOAL = {
     4: "Cleaning dishes",
     5: "Making a cup of coffee in coffee maker",
     6: "Cleaning the kitchen",
+}
+
+SALADS_GOAL = {
+    0: "Cut and mix ingredients",
+    1: "Prepare dressing",
+    2: "Serve salad",
+    3: "Action end",
+    4: "Action start",
 }
 
 def decode_infer_goals_to_text(infer_goals, clip_model, device='cuda', topk=1):
@@ -249,9 +257,10 @@ class GaussianBitDiffusion(nn.Module):
         with torch.amp.autocast('cuda'):
             global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
             #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
-            #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-            global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-            print(global_goal_texts)
+            global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+            #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+            #global_goal_texts = [SALADS_GOAL[idx.item()] for idx in global_goal_classes]
+            #print(global_goal_texts)
             
             global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
             global_goal_features = self.clip.encode_text(global_goal_tokens)  # (B, 512)

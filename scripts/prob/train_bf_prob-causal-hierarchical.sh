@@ -29,7 +29,7 @@ OPTS="--model_dir=/home/hice1/skim3513/scratch/GTDA/model/bf/diff \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
       --num_highlevel_classes=512 \
-      --date=202508041519 \
+      --date=202508050109 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS

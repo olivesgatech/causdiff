@@ -35,6 +35,11 @@ action_mapping = {
     ]
 }
 
+fine_to_goal = {}
+for goal_name, fine_list in action_mapping.items():
+    for fine_action in fine_list:
+        fine_to_goal[fine_action] = goal_name
+
 
 class BatchGeneratorTCN(Dataset):
     def __init__(
@@ -104,8 +109,6 @@ class BatchGeneratorTCN(Dataset):
         #print(gt_name)
         L1 = gt_name.split('_')[-1].split('.')[0]
         
-        goals_label = (os.path.basename(gt_name)).split('_')[-2].split('.')[0]
-        
         assert os.path.exists(features_name), "{} features file not found".format(features_name)
         assert os.path.exists(gt_name), "{} annot. file not found".format(gt_name)
 
@@ -116,7 +119,8 @@ class BatchGeneratorTCN(Dataset):
         #content = [line.split(',')[1] for line in content]
         content = [line.split(',')[2] for line in content]
         #content = [L1]*vid_len
-
+        goals_label = [fine_to_goal.get(action, "action_end") for action in content]
+        
         # Obs limit
         obs_percentage = self.list_of_examples[idx][1]
         if self.obs_perc == 0:
@@ -143,6 +147,7 @@ class BatchGeneratorTCN(Dataset):
 
         # goal label
         goal_label = self.goal_label_to_id(goals_label)
+        goal_label = goal_label[:pred_lim]
         
         # masks
         mask_past = np.zeros(len(content_past_future))
@@ -160,7 +165,7 @@ class BatchGeneratorTCN(Dataset):
         classes_one_hot = classes_one_hot[:, :: self.sample_rate]
 
         # goal (one hot)
-        goal_label_extend = goal_label.repeat(len(content_past_future))
+        goal_label_extend = goal_label#.repeat(len(content_past_future))
         goals_one_hot = np.zeros((int(self.num_highlevel_classes), len(content_past_future)))
         for i in range(len(content_past_future)):
             goals_one_hot[int(goal_label_extend[i])][i] = 1
