@@ -23,7 +23,7 @@ OPTS="--model_dir=/home/hice1/skim3513/scratch/GTDA/model/bf/diff \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
       --num_epochs=100 \
-      --epoch=60 \
+      --epoch=85 \
       --num_stages=5 \
       --obs_stages=0 \
       --ant_stages=5 \

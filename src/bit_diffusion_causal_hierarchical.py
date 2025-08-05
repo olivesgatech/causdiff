@@ -15,6 +15,70 @@ import clip
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])#, "pred_goal_noise", "pred_goal_start"])
 
+BREAKFAST_GOAL = {
+    0: "scrambledegg",
+    1: "tea",
+    2: "coffee",
+    3: "milk",
+    4: "friedegg",
+    5: "cereals",
+    6: "pancake",
+    7: "sandwich",
+    8: "salat",
+    9: "juice"
+}
+
+DARAI_GOAL = {
+    0: "Using handheld smart devices",
+    1: "Making a cup of instant coffee",
+    2: "Making pancake",
+    3: "Dining",
+    4: "Cleaning dishes",
+    5: "Making a cup of coffee in coffee maker",
+    6: "Cleaning the kitchen",
+}
+
+def decode_infer_goals_to_text(infer_goals, clip_model, device='cuda', topk=1):
+    """
+    Decode infer_goals (S, B, T, 512) using CLIP text embeddings.
+
+    Returns:
+        predictions: (S, B, T, topk) of predicted text labels like "action 3"
+    """
+    S, B, T, D = infer_goals.shape
+    assert D == 512, "Expected last dimension of infer_goals to be 512"
+
+    # Define candidate text labels
+    action_texts = [f"action {i}" for i in range(48)]  # Change 48 if needed
+
+    with torch.no_grad(), torch.amp.autocast(device_type='cuda'):
+        # Tokenize and encode candidate texts
+        text_tokens = clip.tokenize(action_texts).to(device)
+        text_features = clip_model.encode_text(text_tokens)  # (48, 512)
+        text_features = F.normalize(text_features, dim=-1)   # Normalize for cosine sim
+
+        # Reshape infer_goals: (S*B*T, 512)
+        infer_flat = infer_goals.reshape(-1, D)
+        infer_flat = F.normalize(infer_flat, dim=-1)
+
+        # Cosine similarity: (S*B*T, 48)
+        similarity = infer_flat @ text_features.T
+
+        # Top-k predicted indices
+        topk_indices = similarity.topk(topk, dim=-1).indices  # (S*B*T, topk)
+
+        # Convert indices to text
+        topk_texts = [[action_texts[i.item()] for i in row] for row in topk_indices]
+
+        # Reshape to (S, B, T, topk)
+        predictions = []
+        for i in range(S * B * T):
+            predictions.append(topk_texts[i])
+        predictions = np.array(predictions).reshape(S, B, T, topk)
+
+    return predictions  # shape: (S, B, T, topk)
+
+
 def cosine_loss(x, y):
     cos_sim = F.cosine_similarity(x, y, dim=-1)
     return 1 - cos_sim
@@ -184,7 +248,11 @@ class GaussianBitDiffusion(nn.Module):
         # Get global goal features (only once)
         with torch.amp.autocast('cuda'):
             global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
-            global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
+            #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
+            #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+            global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+            print(global_goal_texts)
+            
             global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
             global_goal_features = self.clip.encode_text(global_goal_tokens)  # (B, 512)
             
@@ -431,6 +499,7 @@ class GaussianBitDiffusion(nn.Module):
             #self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
             self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
         )
+
         infer_goal = infer_goal[-1]
         
         self_cond = torch.cat([self_cond, infer_goal], dim=2)
