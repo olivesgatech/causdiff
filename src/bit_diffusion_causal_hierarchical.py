@@ -46,6 +46,36 @@ SALADS_GOAL = {
     4: "Action start",
 }
 
+def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
+    """
+    Efficient time-causal self-attention summarization over (B, T, D).
+    Each timestep attends only to previous and current subgoals.
+    
+    Args:
+        subgoal_seq: (B, T, D) tensor of subgoal sequence
+    
+    Returns:
+        context: (B, T, D) causal attention summary
+    """
+    B, T, D = subgoal_seq.shape
+    q = subgoal_seq  # (B, T, D)
+    k = subgoal_seq
+    v = subgoal_seq
+
+    # Compute attention scores: (B, T, T)
+    attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, T, T)
+
+    # Apply causal mask (upper triangle = -inf)
+    causal_mask = torch.triu(torch.ones(T, T, device=subgoal_seq.device), diagonal=1).bool()
+    attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0), float('-inf'))
+
+    attn_weights = F.softmax(attn_scores, dim=-1)  # (B, T, T)
+
+    # Weighted sum over values: (B, T, D)
+    context = torch.matmul(attn_weights, v)
+
+    return context
+
 def decode_infer_goals_to_text(infer_goals, clip_model, device='cuda', topk=1):
     """
     Decode infer_goals (S, B, T, 512) using CLIP text embeddings.
@@ -254,31 +284,32 @@ class GaussianBitDiffusion(nn.Module):
         S, B, T, D = subgoal_features.shape
         
         # Get global goal features (only once)
-        with torch.amp.autocast('cuda'):
-            global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
+        #with torch.amp.autocast('cuda'):
+            #global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
             #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
-            global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+            #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
             #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
             #global_goal_texts = [SALADS_GOAL[idx.item()] for idx in global_goal_classes]
-            #print(global_goal_texts)
             
-            global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
-            global_goal_features = self.clip.encode_text(global_goal_tokens)  # (B, 512)
+            
+            #global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
+            #global_goal_features = self.clip.encode_text(global_goal_tokens)  # (B, 512)
             
             # Expand global goal features to match subgoal shape
             # (B, 512) -> (B, 1, 512) -> (B, T, 512)
-            global_goal_features = global_goal_features.unsqueeze(1).expand(-1, T, -1)
+            #global_goal_features = global_goal_features.unsqueeze(1).expand(-1, T, -1)
             # (B, T, 512) -> (1, B, T, 512) -> (S, B, T, 512)
-            global_goal_features = global_goal_features.unsqueeze(0).expand(S, -1, -1, -1)
-            
-            # Now both tensors are (S, B, T, D)
-            similarity = F.cosine_similarity(
-                subgoal_features,
-                global_goal_features,
-                dim=-1  # compute similarity along feature dimension
-            )  # (S, B, T)
-            
-            loss = 1 - similarity.mean()
+            #global_goal_features = global_goal_features.unsqueeze(0).expand(S, -1, -1, -1)
+        global_goal_features = global_goal.unsqueeze(0).expand(S,-1,-1,-1)
+        
+        # Now both tensors are (S, B, T, D)
+        similarity = F.cosine_similarity(
+            subgoal_features,
+            global_goal_features,
+            dim=-1  # compute similarity along feature dimension
+        )  # (S, B, T)
+        
+        loss = 1 - similarity.mean()
             
         return loss
     
@@ -348,7 +379,15 @@ class GaussianBitDiffusion(nn.Module):
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # sample: goal
-        goal_start = gt_goal_one_hot # (16, 1816, 10)
+        _, T, _ = gt_goal_one_hot.shape
+        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
+        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+
+        # 2. 확장 (time axis 맞추기)
+        goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
+        #goal_start = gt_goal_one_hot # (16, 1816, 10)
         goal_noise = None
         goal_noise = default(goal_noise, lambda: torch.randn_like(goal_start))
         
@@ -370,7 +409,9 @@ class GaussianBitDiffusion(nn.Module):
                     obs_cond=obs_cond, # frames
                     self_cond=self_cond,
                 )
-                self_cond = infer_goal[-1].detach()
+                self_cond = causal_attention_summary(infer_goal[-1].detach())
+                
+                #self_cond = infer_goal[-1].detach()
                 #print("self cond shape: ", self_cond.shape)
         # REVERSE STEP
         _, model_out_goal = self.goalmodel(
@@ -448,7 +489,7 @@ class GaussianBitDiffusion(nn.Module):
                 ### action diffusion: model_out (S x B x T x C)
                 loss_goal = self.semantic_consistency_loss(
                     subgoal_features=subgoal_seq,
-                    global_goal=gt_goal_one_hot
+                    global_goal=goal_start
                 )
                 #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
                 loss += loss_goal
