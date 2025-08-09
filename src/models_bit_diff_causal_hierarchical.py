@@ -185,7 +185,7 @@ class DiffSingleStageModel(nn.Module):
 
         # Feature projection layer for semantic space
         self.feature_proj = nn.Sequential(
-            nn.Conv1d(num_f_maps, 512, 1),  # CLIP text dimension과 맞추기
+            nn.Conv1d(num_f_maps, 384, 1),  # CLIP text dimension과 맞추기
             nn.ReLU(),
             nn.Dropout(dropout)
         )

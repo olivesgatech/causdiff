@@ -10,9 +10,10 @@ import torch.nn.functional as F
 from einops import repeat, rearrange
 from torch import nn
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import cosine_similarity
 import clip
-
+from transformers import AutoTokenizer, AutoModel
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])#, "pred_goal_noise", "pred_goal_start"])
 
 BREAKFAST_GOAL = {
@@ -26,6 +27,57 @@ BREAKFAST_GOAL = {
     7: "a person is making sandwich",
     8: "a person is making salat",
     9: "a person is making juice"
+}
+
+BREAKFAST_ACTION = {
+    0:  "a person is silent",
+    1:  "a person is pouring cereals",
+    2:  "a person is pouring milk",
+    3:  "a person is stirring cereals",
+    4:  "a person is taking a bowl",
+    5:  "a person is pouring coffee",
+    6:  "a person is taking a cup",
+    7:  "a person is spooning sugar",
+    8:  "a person is stirring coffee",
+    9:  "a person is pouring sugar",
+    10: "a person is pouring oil",
+    11: "a person is cracking an egg",
+    12: "a person is adding salt and pepper",
+    13: "a person is frying an egg",
+    14: "a person is taking a plate",
+    15: "a person is putting an egg on a plate",
+    16: "a person is taking eggs",
+    17: "a person is buttering a pan",
+    18: "a person is taking a knife",
+    19: "a person is cutting an orange",
+    20: "a person is squeezing an orange",
+    21: "a person is pouring juice",
+    22: "a person is taking a glass",
+    23: "a person is taking a squeezer",
+    24: "a person is spooning powder",
+    25: "a person is stirring milk",
+    26: "a person is spooning flour",
+    27: "a person is stirring dough",
+    28: "a person is pouring dough into a pan",
+    29: "a person is frying a pancake",
+    30: "a person is putting a pancake on a plate",
+    31: "a person is pouring flour",
+    32: "a person is cutting fruit",
+    33: "a person is putting fruit into a bowl",
+    34: "a person is peeling fruit",
+    35: "a person is stirring fruit",
+    36: "a person is cutting a bun",
+    37: "a person is smearing butter",
+    38: "a person is taking a topping",
+    39: "a person is putting the topping on top",
+    40: "a person is putting the bun together",
+    41: "a person is taking butter",
+    42: "a person is stirring eggs",
+    43: "a person is pouring eggs into a pan",
+    44: "a person is stir-frying eggs",
+    45: "a person is adding a teabag",
+    46: "a person is pouring water",
+    47: "a person is stirring tea"
 }
 
 DARAI_GOAL = {
@@ -46,75 +98,62 @@ SALADS_GOAL = {
     4: "Action start",
 }
 
-def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
-    """
-    Efficient time-causal self-attention summarization over (B, T, D).
-    Each timestep attends only to previous and current subgoals.
-    
-    Args:
-        subgoal_seq: (B, T, D) tensor of subgoal sequence
-    
-    Returns:
-        context: (B, T, D) causal attention summary
-    """
+def causal_attention_summary(subgoal_seq: torch.Tensor, h: int = 4) -> torch.Tensor:
     B, T, D = subgoal_seq.shape
-    q = subgoal_seq  # (B, T, D)
-    k = subgoal_seq
-    v = subgoal_seq
+    device = subgoal_seq.device
+    context = []
 
-    # Compute attention scores: (B, T, T)
-    attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, T, T)
+    for t in range(T):
+        t_start = max(0, t - h)
+        q = subgoal_seq[:, t:t+1, :]               # (B, 1, D)
+        k = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
+        v = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
 
-    # Apply causal mask (upper triangle = -inf)
-    causal_mask = torch.triu(torch.ones(T, T, device=subgoal_seq.device), diagonal=1).bool()
-    attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0), float('-inf'))
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, 1, h')
+        attn_weights = F.softmax(attn_scores, dim=-1)                    # (B, 1, h')
+        attended = torch.matmul(attn_weights, v)                         # (B, 1, D)
 
-    attn_weights = F.softmax(attn_scores, dim=-1)  # (B, T, T)
+        context.append(attended.squeeze(1))  # → (B, D)
 
-    # Weighted sum over values: (B, T, D)
-    context = torch.matmul(attn_weights, v)
-
+    context = torch.stack(context, dim=1)  # (B, T, D)
     return context
 
-def decode_infer_goals_to_text(infer_goals, clip_model, device='cuda', topk=1):
-    """
-    Decode infer_goals (S, B, T, 512) using CLIP text embeddings.
+def encode_texts(texts, clip_model, device='cuda'):
+    tokens = clip.tokenize(texts).to(device)
+    with torch.no_grad():
+        text_features = clip_model.encode_text(tokens)  # (N, 512)
+        text_features = F.normalize(text_features.float(), dim=-1)
+    return text_features
 
-    Returns:
-        predictions: (S, B, T, topk) of predicted text labels like "action 3"
-    """
-    S, B, T, D = infer_goals.shape
-    assert D == 512, "Expected last dimension of infer_goals to be 512"
+# Main function: input = CLIP vector → output = "goal_text, action_text"
+def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
+    if clip_embedding.dim() == 1:
+        clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
+    clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
 
-    # Define candidate text labels
-    action_texts = [f"action {i}" for i in range(48)]  # Change 48 if needed
+    # Encode candidates
+    goal_texts = list(BREAKFAST_GOAL.values())
+    action_texts = list(BREAKFAST_ACTION.values())
+    goal_feats = encode_texts(goal_texts, clip_model, device)
+    action_feats = encode_texts(action_texts, clip_model, device)
 
-    with torch.no_grad(), torch.amp.autocast(device_type='cuda'):
-        # Tokenize and encode candidate texts
-        text_tokens = clip.tokenize(action_texts).to(device)
-        text_features = clip_model.encode_text(text_tokens)  # (48, 512)
-        text_features = F.normalize(text_features, dim=-1)   # Normalize for cosine sim
+    # Compute cosine similarity
+    goal_sim = clip_embedding @ goal_feats.T  # (1, 10)
+    action_sim = clip_embedding @ action_feats.T  # (1, 48)
 
-        # Reshape infer_goals: (S*B*T, 512)
-        infer_flat = infer_goals.reshape(-1, D)
-        infer_flat = F.normalize(infer_flat, dim=-1)
+    # Pick top-1 from each
+    # goal_idx = goal_sim.argmax(dim=-1).item()
+    # action_idx = action_sim.argmax(dim=-1).item()
+    # goal_text = goal_texts[goal_idx]
+    # action_text = action_texts[action_idx]
+    topk=5
+    goal_vals, goal_idxs = goal_sim.topk(topk, dim=-1)
+    action_vals, action_idxs = action_sim.topk(topk, dim=-1)
 
-        # Cosine similarity: (S*B*T, 48)
-        similarity = infer_flat @ text_features.T
+    topk_goals = [(goal_texts[goal_idxs[0][i]], goal_vals[0][i].item()) for i in range(topk)]
+    topk_actions = [(action_texts[action_idxs[0][i]], action_vals[0][i].item()) for i in range(topk)]
 
-        # Top-k predicted indices
-        topk_indices = similarity.topk(topk, dim=-1).indices  # (S*B*T, topk)
-
-        # Convert indices to text
-        topk_texts = [[action_texts[i.item()] for i in row] for row in topk_indices]
-
-        # Reshape to (S, B, T, topk)
-        predictions = []
-        for i in range(S * B * T):
-            predictions.append(topk_texts[i])
-        predictions = np.array(predictions).reshape(S, B, T, topk)
-
-    return predictions  # shape: (S, B, T, topk)
+    return topk_goals, topk_actions
 
 
 def cosine_loss(x, y):
@@ -202,6 +241,9 @@ class GaussianBitDiffusion(nn.Module):
     ):
         
         super().__init__()
+        self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+        self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda')
+        self.text_encoder.eval()  # inference only
         
         print(f'Num classes : {num_classes}')
         print(f'Loss type : {loss_type}')
@@ -381,9 +423,18 @@ class GaussianBitDiffusion(nn.Module):
         # sample: goal
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
-        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+
+        ## minilm tokenization
+        goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
+        with torch.no_grad():
+            outputs = self.text_encoder(**goal_inputs)
+            goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
+
+        ## CLIP Tokenization
+        # goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        # goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
 
         # 2. 확장 (time axis 맞추기)
         goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
@@ -398,7 +449,7 @@ class GaussianBitDiffusion(nn.Module):
 
         # SELF-CONDITIONING
         #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
+        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 384), device=gt_goal_one_hot.device)
 
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
@@ -539,7 +590,22 @@ class GaussianBitDiffusion(nn.Module):
             self_cond = pred_x_start_prev
         
         ###################################################################################
-        goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
+        #goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
+        _, T, _ = gt_goal_one_hot.shape
+        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
+        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        ## minilm tokenization
+        goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
+        with torch.no_grad():
+            outputs = self.text_encoder(**goal_inputs)
+            goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
+        goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D)
+        
+        # ## CLIP tokenization
+        # goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        # goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        # goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
 
         _, infer_goal = self.goalmodel(
             x=goal_t, 
@@ -547,10 +613,46 @@ class GaussianBitDiffusion(nn.Module):
             stage_masks=stage_masks,
             obs_cond=obs,
             #self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-            self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
+            self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 384), device=gt_goal_one_hot.device)
         )
 
-        infer_goal = infer_goal[-1]
+        infer_goal = infer_goal[-1] # (25, 106, 512)
+        # infer_goal: (T, 512)
+        # for i in range(25):
+        #     sim_matrix = cosine_similarity(infer_goal[i].cpu().numpy())
+        #     plt.figure(figsize=(6, 5))
+        #     img = plt.imshow(sim_matrix, cmap='viridis', aspect='auto')
+        #     plt.axis('off')            # ✅ 모든 축과 라벨 제거
+        #     plt.title("")              # ✅ 제목 제거
+        #     plt.xticks([])             # ✅ x축 눈금 제거
+        #     plt.yticks([])             # ✅ y축 눈금 제거
+
+        #     plt.tight_layout()
+        #     plt.savefig(f'subgoal_{i}.png', dpi=150, bbox_inches='tight', pad_inches=0)
+        #     plt.close()
+
+        # decoded_texts = []
+        # for i in range(25):
+            
+        #     text = decode_clip_embedding_to_text(goal_features[i], self.clip, 'cuda:1')
+        #     print(f"///////////////// goal: {text} ///////////////////////")
+
+        # # 텍스트 디코딩 + 저장
+        # for i in range(infer_goal.shape[1]):
+        #     clip_vec = infer_goal[0][i]
+            
+        #     text = decode_clip_embedding_to_text(clip_vec, self.clip, 'cuda:1')
+        #     decoded_texts.append(text)
+        #     print(f"[{i}] {text}")
+
+        # # 결과를 파일에 저장
+        # output_path = "decoded_subgoals.txt"
+        # with open(output_path, "w", encoding="utf-8") as f:
+        #     for line in decoded_texts:
+        #         f.write(str(line) + "\n")
+
+        # print(f"\n✅ completed: {output_path}")
+
         
         self_cond = torch.cat([self_cond, infer_goal], dim=2)
         

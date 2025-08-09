@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-OPTS="--model_dir=/home/hice1/skim3513/scratch/GTDA/model/darai/diff \
-      --results_dir=/home/hice1/skim3513/scratch/GTDA/model/darai/diff\
-      --mapping_file=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/mapping_l3_changed.txt \
-      --mapping_coarse_file=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/mapping_l1_changed.txt \
-      --vid_list_file_test=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/splits/test_split.txt \
-      --vid_list_file=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/splits/train_split.txt \
-      --gt_path=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/groundTruth_img/ \
-      --features_path=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/features_img \
+OPTS="--model_dir=/home/seulgi/work/causdiff/model/darai/diff \
+      --results_dir=/home/seulgi/work/causdiff/model/darai/diff \
+      --mapping_file=./datasets/darai/mapping_l3_changed.txt \
+      --mapping_coarse_file=./datasets/darai/mapping_l1_changed.txt \
+      --vid_list_file_test=./datasets/darai/splits/test_split.txt \
+      --vid_list_file=./datasets/darai/splits/train_split.txt \
+      --gt_path=./datasets/darai/groundTruth_nov11/ \
+      --features_path=./datasets/darai/features_temp \
       --split=4 \
       --conditioned_x0 \
       --use_features \
@@ -28,8 +28,8 @@ OPTS="--model_dir=/home/hice1/skim3513/scratch/GTDA/model/darai/diff \
       --ant_stages=5 \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
-      --num_highlevel_classes=512 \
-      --date=202508041600 \
+      --num_highlevel_classes=384 \
+      --date=202508081911 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS
