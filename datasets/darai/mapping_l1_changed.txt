@@ -1,0 +1,7 @@
+0 Using_handheld_smart_devices
+1 Making_a_cup_of_instant_coffee
+2 Making_pancake
+3 Dining
+4 Cleaning_dishes
+5 Making_a_cup_of_coffee_in_coffee_maker
+6 Cleaning_the_kitchen

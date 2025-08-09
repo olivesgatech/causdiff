@@ -1,0 +1,17 @@
+0  Bake_pancake
+1  Cleaning_Countertops
+2  Cleaning_Floor
+3  Get_ingredients
+4  Having_a_meal
+5  Mix_ingredients
+6  Prep_ingredients
+7  Prepare_Kitchen_appliance
+8  Scroll_on_tablet
+9  Setting_a_table
+10  Take_out_Kitchen_and_cooking_tools
+11  Take_out_smartphone
+12  Throw_out_leftovers  
+13  Using_Smartphone
+14  Using_Tablet
+15  Washing_and_Drying_dishes_with_hands
+16  UNDEFINED
