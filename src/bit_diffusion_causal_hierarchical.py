@@ -16,18 +16,32 @@ import clip
 from transformers import AutoTokenizer, AutoModel
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])#, "pred_goal_noise", "pred_goal_start"])
 
+# BREAKFAST_GOAL = {
+#     0: "a person is making scrambled egg",
+#     1: "a person is making tea",
+#     2: "a person is making coffee",
+#     3: "a person is making milk",
+#     4: "a person is making fried egg",
+#     5: "a person is making cereals",
+#     6: "a person is making pancake",
+#     7: "a person is making sandwich",
+#     8: "a person is making salat",
+#     9: "a person is making juice"
+# }
+
 BREAKFAST_GOAL = {
-    0: "a person is making scrambled egg",
-    1: "a person is making tea",
-    2: "a person is making coffee",
-    3: "a person is making milk",
-    4: "a person is making fried egg",
-    5: "a person is making cereals",
-    6: "a person is making pancake",
-    7: "a person is making sandwich",
-    8: "a person is making salat",
-    9: "a person is making juice"
+    0: "the goal is to prepare scrambled eggs for breakfast",
+    1: "the goal is to brew tea for breakfast",
+    2: "the goal is to brew coffee for breakfast",
+    3: "the goal is to pour milk for breakfast",
+    4: "the goal is to prepare fried eggs for breakfast",
+    5: "the goal is to prepare a bowl of cereal for breakfast",
+    6: "the goal is to cook pancakes for breakfast",
+    7: "the goal is to make a sandwich for breakfast",
+    8: "the goal is to prepare a salad for breakfast",
+    9: "the goal is to make juice for breakfast"
 }
+
 
 BREAKFAST_ACTION = {
     0:  "a person is silent",
@@ -98,25 +112,55 @@ SALADS_GOAL = {
     4: "Action start",
 }
 
-def causal_attention_summary(subgoal_seq: torch.Tensor, h: int = 4) -> torch.Tensor:
+def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
+    """
+    Efficient time-causal self-attention summarization over (B, T, D).
+    Each timestep attends only to previous and current subgoals.
+    
+    Args:
+        subgoal_seq: (B, T, D) tensor of subgoal sequence
+    
+    Returns:
+        context: (B, T, D) causal attention summary
+    """
     B, T, D = subgoal_seq.shape
-    device = subgoal_seq.device
-    context = []
+    q = subgoal_seq  # (B, T, D)
+    k = subgoal_seq
+    v = subgoal_seq
 
-    for t in range(T):
-        t_start = max(0, t - h)
-        q = subgoal_seq[:, t:t+1, :]               # (B, 1, D)
-        k = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
-        v = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
+    # Compute attention scores: (B, T, T)
+    attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, T, T)
 
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, 1, h')
-        attn_weights = F.softmax(attn_scores, dim=-1)                    # (B, 1, h')
-        attended = torch.matmul(attn_weights, v)                         # (B, 1, D)
+    # Apply causal mask (upper triangle = -inf)
+    causal_mask = torch.triu(torch.ones(T, T, device=subgoal_seq.device), diagonal=1).bool()
+    attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0), float('-inf'))
 
-        context.append(attended.squeeze(1))  # → (B, D)
+    attn_weights = F.softmax(attn_scores, dim=-1)  # (B, T, T)
 
-    context = torch.stack(context, dim=1)  # (B, T, D)
+    # Weighted sum over values: (B, T, D)
+    context = torch.matmul(attn_weights, v)
+
     return context
+
+# def causal_attention_summary(subgoal_seq: torch.Tensor, h: int = 4) -> torch.Tensor:
+#     B, T, D = subgoal_seq.shape
+#     device = subgoal_seq.device
+#     context = []
+
+#     for t in range(T):
+#         t_start = max(0, t - h)
+#         q = subgoal_seq[:, t:t+1, :]               # (B, 1, D)
+#         k = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
+#         v = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
+
+#         attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, 1, h')
+#         attn_weights = F.softmax(attn_scores, dim=-1)                    # (B, 1, h')
+#         attended = torch.matmul(attn_weights, v)                         # (B, 1, D)
+
+#         context.append(attended.squeeze(1))  # → (B, D)
+
+#     context = torch.stack(context, dim=1)  # (B, T, D)
+#     return context
 
 def encode_texts(texts, clip_model, device='cuda'):
     tokens = clip.tokenize(texts).to(device)
@@ -450,7 +494,7 @@ class GaussianBitDiffusion(nn.Module):
         # SELF-CONDITIONING
         #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
         self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
-
+        
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
                 _, infer_goal = self.goalmodel(
@@ -463,7 +507,7 @@ class GaussianBitDiffusion(nn.Module):
                 self_cond = causal_attention_summary(infer_goal[-1].detach())
                 
                 #self_cond = infer_goal[-1].detach()
-                #print("self cond shape: ", self_cond.shape)
+
         # REVERSE STEP
         _, model_out_goal = self.goalmodel(
             x=goal_t,
@@ -531,8 +575,8 @@ class GaussianBitDiffusion(nn.Module):
         # KL (q(x_t-1 | x_o, x_t) || p(x_t-1 | x_t))
         if self.loss_type == 'l2':
             target = repeat(target, 'b t c -> s b t c', s=model_out.shape[0])
+              
             mask_all = torch.stack(mask_all, dim=0)
-
             loss = self.loss_fn(model_out, target, reduction="none")  # S x B x T x C
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
             if gt_goal is not None:
@@ -614,6 +658,7 @@ class GaussianBitDiffusion(nn.Module):
             obs_cond=obs,
             #self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
             self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
+            #self_cond = self_cond
         )
 
         infer_goal = infer_goal[-1] # (25, 106, 512)

@@ -384,9 +384,9 @@ class TrainerTCN:
             # ITERATE
             print("length: ", len(dataloader))
             for itr, sample_batched in enumerate(dataloader):
-                print(itr, "##################")
-                if itr % 100 != 0:
-                    continue
+                # print(itr, "##################")
+                # if itr % 100 != 0:
+                #     continue
                 # DATA
                 features = sample_batched[0] 
 
