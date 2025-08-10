@@ -241,9 +241,9 @@ class GaussianBitDiffusion(nn.Module):
     ):
         
         super().__init__()
-        self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-        self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda')
-        self.text_encoder.eval()  # inference only
+        # self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda')
+        # self.text_encoder.eval()  # inference only
         
         print(f'Num classes : {num_classes}')
         print(f'Loss type : {loss_type}')
@@ -423,18 +423,18 @@ class GaussianBitDiffusion(nn.Module):
         # sample: goal
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
 
-        ## minilm tokenization
-        goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
-        with torch.no_grad():
-            outputs = self.text_encoder(**goal_inputs)
-            goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
+        # ## minilm tokenization
+        # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
+        # with torch.no_grad():
+        #     outputs = self.text_encoder(**goal_inputs)
+        #     goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
 
-        ## CLIP Tokenization
-        # goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
-        # goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        # CLIP Tokenization
+        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
 
         # 2. 확장 (time axis 맞추기)
         goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
@@ -449,7 +449,7 @@ class GaussianBitDiffusion(nn.Module):
 
         # SELF-CONDITIONING
         #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 384), device=gt_goal_one_hot.device)
+        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
 
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
@@ -593,19 +593,19 @@ class GaussianBitDiffusion(nn.Module):
         #goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-        ## minilm tokenization
-        goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
-        with torch.no_grad():
-            outputs = self.text_encoder(**goal_inputs)
-            goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
-        goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D)
+        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        # ## minilm tokenization
+        # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
+        # with torch.no_grad():
+        #     outputs = self.text_encoder(**goal_inputs)
+        #     goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
+        # goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D)
         
-        # ## CLIP tokenization
-        # goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
-        # goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
-        # goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
+        ## CLIP tokenization
+        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
 
         _, infer_goal = self.goalmodel(
             x=goal_t, 
@@ -613,7 +613,7 @@ class GaussianBitDiffusion(nn.Module):
             stage_masks=stage_masks,
             obs_cond=obs,
             #self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-            self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 384), device=gt_goal_one_hot.device)
+            self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
         )
 
         infer_goal = infer_goal[-1] # (25, 106, 512)
