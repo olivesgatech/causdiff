@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import cosine_similarity
 import clip
 from transformers import AutoTokenizer, AutoModel
+import os, re, glob
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])#, "pred_goal_noise", "pred_goal_start"])
 
 # BREAKFAST_GOAL = {
@@ -169,35 +170,105 @@ def encode_texts(texts, clip_model, device='cuda'):
         text_features = F.normalize(text_features.float(), dim=-1)
     return text_features
 
-# Main function: input = CLIP vector → output = "goal_text, action_text"
-def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
-    if clip_embedding.dim() == 1:
-        clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
-    clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
+def decode_clip_embedding_to_text(
+    clip_embedding,
+    device='cuda',
+    features_dir="/home/hice1/skim3513/scratch/causdiff/datasets/darai/features_description_text",
+    out_txt_path="/home/hice1/skim3513/scratch/causdiff/datasets/darai/out.txt", topk=5
+):
+    # ---- 1) clip_embedding → (1, D) float tensor on device ----
+    if not isinstance(clip_embedding, torch.Tensor):
+        clip_embedding = torch.as_tensor(clip_embedding)
+    clip_embedding = clip_embedding.float().to(device)
 
-    # Encode candidates
-    goal_texts = list(BREAKFAST_GOAL.values())
-    action_texts = list(BREAKFAST_ACTION.values())
-    goal_feats = encode_texts(goal_texts, clip_model, device)
-    action_feats = encode_texts(action_texts, clip_model, device)
+    if clip_embedding.ndim == 1:
+        clip_embedding = clip_embedding.unsqueeze(0)  # (1, D)
+    else:
+        clip_embedding = clip_embedding.reshape(clip_embedding.shape[0], -1)
+        if clip_embedding.shape[0] > 1:
+            clip_embedding = clip_embedding[:1, :]
+    clip_embedding = F.normalize(clip_embedding, dim=-1)  # (1, D)
 
-    # Compute cosine similarity
-    goal_sim = clip_embedding @ goal_feats.T  # (1, 10)
-    action_sim = clip_embedding @ action_feats.T  # (1, 48)
+    # ---- 2) feature 로드 → (N, D) ----
+    npy_paths = sorted(glob.glob(os.path.join(features_dir, "*.npy")))
+    if not npy_paths:
+        raise FileNotFoundError(f"No .npy features found in {features_dir}")
 
-    # Pick top-1 from each
-    # goal_idx = goal_sim.argmax(dim=-1).item()
-    # action_idx = action_sim.argmax(dim=-1).item()
-    # goal_text = goal_texts[goal_idx]
-    # action_text = action_texts[action_idx]
-    topk=5
-    goal_vals, goal_idxs = goal_sim.topk(topk, dim=-1)
-    action_vals, action_idxs = action_sim.topk(topk, dim=-1)
+    feats_list, stems = [], []
+    for p in npy_paths:
+        arr = np.load(p)
+        arr = np.asarray(arr, dtype=np.float32)
+        if arr.ndim >= 2:
+            arr = arr.reshape(-1)
+        if arr.size == 0:
+            continue
+        feats_list.append(arr)
+        stems.append(os.path.splitext(os.path.basename(p))[0])  # "00017"
 
-    topk_goals = [(goal_texts[goal_idxs[0][i]], goal_vals[0][i].item()) for i in range(topk)]
-    topk_actions = [(action_texts[action_idxs[0][i]], action_vals[0][i].item()) for i in range(topk)]
+    if not feats_list:
+        raise RuntimeError(f"No valid feature arrays in {features_dir}")
 
-    return topk_goals, topk_actions
+    feats = torch.from_numpy(np.stack(feats_list, axis=0)).to(device)  # (N, D)
+    feats = F.normalize(feats, dim=-1)
+
+    # ---- 3) 코사인 유사도 & Top-K ----
+    sims = torch.matmul(clip_embedding, feats.t()).flatten()  # (N,)
+    k = int(min(topk, sims.numel()))
+    top_vals, top_idxs = torch.topk(sims, k=k, largest=True, sorted=True)  # (k,)
+
+    # ---- 4) out.txt 로부터 텍스트 매핑 ----
+    with open(out_txt_path, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = [ln.rstrip('\n') for ln in f]
+
+    results = []
+    for rank in range(k):
+        idx = int(top_idxs[rank].item())
+        stem = stems[idx]                  # "00017"
+        feat_path = npy_paths[idx]
+        # stem에서 숫자 추출 후 +1 → 1-indexed 라인
+        m = re.search(r'(\d+)$', stem)
+        file_index = int(m.group(1)) if m else idx
+        line_num = file_index + 1
+        if line_num < 1: line_num = 1
+        if line_num > len(lines): line_num = len(lines)
+        text = lines[line_num - 1].strip()
+
+        results.append({
+            "text": text,
+            "score": float(top_vals[rank].item()),
+        })
+
+    return results
+
+# # Main function: input = CLIP vector → output = "goal_text, action_text"
+# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
+#     if clip_embedding.dim() == 1:
+#         clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
+#     clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
+
+#     # Encode candidates
+#     goal_texts = list(BREAKFAST_GOAL.values())
+#     action_texts = list(BREAKFAST_ACTION.values())
+#     goal_feats = encode_texts(goal_texts, clip_model, device)
+#     action_feats = encode_texts(action_texts, clip_model, device)
+
+#     # Compute cosine similarity
+#     goal_sim = clip_embedding @ goal_feats.T  # (1, 10)
+#     action_sim = clip_embedding @ action_feats.T  # (1, 48)
+
+#     # Pick top-1 from each
+#     # goal_idx = goal_sim.argmax(dim=-1).item()
+#     # action_idx = action_sim.argmax(dim=-1).item()
+#     # goal_text = goal_texts[goal_idx]
+#     # action_text = action_texts[action_idx]
+#     topk=5
+#     goal_vals, goal_idxs = goal_sim.topk(topk, dim=-1)
+#     action_vals, action_idxs = action_sim.topk(topk, dim=-1)
+
+#     topk_goals = [(goal_texts[goal_idxs[0][i]], goal_vals[0][i].item()) for i in range(topk)]
+#     topk_actions = [(action_texts[action_idxs[0][i]], action_vals[0][i].item()) for i in range(topk)]
+
+#     return topk_goals, topk_actions
 
 
 def cosine_loss(x, y):
@@ -467,8 +538,8 @@ class GaussianBitDiffusion(nn.Module):
         # sample: goal
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
 
         # ## minilm tokenization
         # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
@@ -637,8 +708,8 @@ class GaussianBitDiffusion(nn.Module):
         #goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
         # ## minilm tokenization
         # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
         # with torch.no_grad():
@@ -676,27 +747,27 @@ class GaussianBitDiffusion(nn.Module):
         #     plt.savefig(f'subgoal_{i}.png', dpi=150, bbox_inches='tight', pad_inches=0)
         #     plt.close()
 
-        # decoded_texts = []
+        decoded_texts = []
         # for i in range(25):
+        #     print(goal_features.shape, goal_features[0].shape)
+        text = decode_clip_embedding_to_text(goal_features[0])
+        print(f"///////////////// goal: {text} ///////////////////////")
+
+        # 텍스트 디코딩 + 저장
+        for i in range(infer_goal.shape[1]):
+            clip_vec = infer_goal[0][i]
             
-        #     text = decode_clip_embedding_to_text(goal_features[i], self.clip, 'cuda:1')
-        #     print(f"///////////////// goal: {text} ///////////////////////")
+            text = decode_clip_embedding_to_text(clip_vec)
+            decoded_texts.append(text)
+            print(f"[{i}] {text}")
 
-        # # 텍스트 디코딩 + 저장
-        # for i in range(infer_goal.shape[1]):
-        #     clip_vec = infer_goal[0][i]
-            
-        #     text = decode_clip_embedding_to_text(clip_vec, self.clip, 'cuda:1')
-        #     decoded_texts.append(text)
-        #     print(f"[{i}] {text}")
+        # 결과를 파일에 저장
+        output_path = "decoded_subgoals.txt"
+        with open(output_path, "w", encoding="utf-8") as f:
+            for line in decoded_texts:
+                f.write(str(line) + "\n")
 
-        # # 결과를 파일에 저장
-        # output_path = "decoded_subgoals.txt"
-        # with open(output_path, "w", encoding="utf-8") as f:
-        #     for line in decoded_texts:
-        #         f.write(str(line) + "\n")
-
-        # print(f"\n✅ completed: {output_path}")
+        print(f"\n✅ completed: {output_path}")
 
         
         self_cond = torch.cat([self_cond, infer_goal], dim=2)
