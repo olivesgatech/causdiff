@@ -104,6 +104,56 @@ DARAI_GOAL = {
     5: "Making a cup of coffee in coffee maker",
     6: "Cleaning the kitchen",
 }
+DARAI_ACTION = {
+    0: "Add batter",
+    1: "Add coffee",
+    2: "Add flour",
+    3: "Add milk",
+    4: "Add sugar",
+    5: "Add water",
+    6: "Check cabinet",
+    7: "Check pancake",
+    8: "Check refrigerator",
+    9: "Clean with broom",
+    10: "Clean with mop",
+    11: "Clean with paper towel",
+    12: "Clean with towel",
+    13: "Conversation on the phone",
+    14: "Crack egg",
+    15: "Drink",
+    16: "Dry dishes",
+    17: "Eat",
+    18: "Fill coffee machine with water",
+    19: "Fill kettle with water",
+    20: "Get coffee",
+    21: "Get cup",
+    22: "Get filter",
+    23: "Get instant coffee",
+    24: "Get pan",
+    25: "Get spoon",
+    26: "Load dishwasher",
+    27: "Place cup",
+    28: "Place dishes",
+    29: "Place drink",
+    30: "Place filter",
+    31: "Place food",
+    32: "Place pan",
+    33: "Place silverware",
+    34: "Prepare for activity",
+    35: "Rinse dishes",
+    36: "Scroll on the phone",
+    37: "Scroll on the tablet",
+    38: "Stir",
+    39: "Stir pancake ingredients",
+    40: "Take out Kitchen and cooking tools",
+    41: "Take out pancake ingredients",
+    42: "Turn on coffee machine",
+    43: "Turn on dishwasher",
+    44: "Turn on kettle",
+    45: "Turn on stove",
+    46: "Unloading dishwasher",
+    47: "UNDEFINED",
+}
 
 SALADS_GOAL = {
     0: "Cut and mix ingredients",
@@ -239,6 +289,89 @@ def decode_clip_embedding_to_text(
         })
 
     return results
+
+def pick_darai_action_by_similarity(model_out, clip_model, device="cuda"):
+    """
+    model_out: torch.Tensor or np.ndarray, shape (512,) or (1,512) or (N,512)
+    return: dict (top-1) 또는 list of dicts (top-k)
+            {"index": int, "label": str, "score": float}
+    """
+    # 1) 텍스트 임베딩
+    action_ids = sorted(DARAI_ACTION.keys())
+    action_texts = [DARAI_ACTION[i] for i in action_ids]
+    action_feats = encode_texts_clip(action_texts, clip_model, device)  # (A,512)
+
+    # 2) model_out 정규화 & 2D화
+    if not isinstance(model_out, torch.Tensor):
+        model_out = torch.as_tensor(model_out)
+    model_out = model_out.float().to(device)
+    if model_out.ndim == 1:
+        model_out = model_out.unsqueeze(0)            # (1,512)
+    else:
+        model_out = model_out.reshape(model_out.shape[0], -1)
+        if model_out.shape[0] > 1:
+            model_out = model_out[:1, :]              # 첫 샘플만 사용
+    model_out = F.normalize(model_out, dim=-1)        # (1,512)
+
+    # 3) 코사인 유사도 (정규화 → 내적 = cosine)
+    sims = torch.matmul(model_out, action_feats.t()).squeeze(0)  # (A,)
+    top_vals, top_idxs = torch.topk(sims, k=1, largest=True, sorted=True)
+    idx = int(top_idxs[r].item())
+    return action_ids[idx]
+
+def ce_loss_with_clip_head(
+    model_out,
+    action_feats,
+    targets,
+    temperature: float = 0.07,
+    mask_all=None,                   # ⬅️ (옵션) 마스크. shape은 targets와 동일한 선행축 (B) 또는 (S,B,T) 등
+    label_smoothing: float = 0.0,
+    micro_average: bool = True,      # True면 전체 마스크 합으로 나눠 마이크로 평균
+):
+    """
+    model_out: (..., 512)  - 예: (B,512) 또는 (B,T,512) 또는 (S,B,T,512)
+    action_feats: (A,512)  - build_action_feats()로 준비
+    targets:     (...)     - model_out의 선행축과 동일. 예: (B,) 또는 (B,T) 또는 (S,B,T) [LongTensor]
+    mask_all:    (...)     - targets와 브로드캐스트 호환되는 마스크 (0/1). 예: (B,) / (B,T) / (S,B,T)
+    반환: (loss: scalar, pred: targets.shape의 예측 인덱스)
+    """
+    # --- 준비 ---
+    D = action_feats.size(-1)
+    dev = action_feats.device
+    x = model_out
+    if not isinstance(x, torch.Tensor):
+        x = torch.as_tensor(x)
+    x = x.to(dev).float()
+
+    # 선행축(=샘플/시퀀스 차원)을 모두 펼쳐 (N,D)로
+    x = x.view(-1, D)
+    x = F.normalize(x, dim=-1)                        # (N,512)
+
+    logits = x @ action_feats.to(dev).t() / float(temperature)   # (N,A)
+
+    tgt = targets.to(dev).view(-1).long()             # (N,)
+    loss_vec = F.cross_entropy(
+        logits, tgt, reduction='none', label_smoothing=label_smoothing
+    )                                                 # (N,)
+
+    # --- 마스크 적용 ---
+    if mask_all is not None:
+        m = torch.as_tensor(mask_all, device=dev, dtype=loss_vec.dtype).view(-1)  # (N,)
+        masked = loss_vec * m
+        if micro_average:
+            denom = m.sum().clamp_min(1e-6)
+            loss = masked.sum() / denom
+        else:
+            # 필요 시 per-sample 평균으로 바꾸고 싶으면 여기서 그룹 단위로 나눠도 됨
+            denom = (m > 0).float().sum().clamp_min(1e-6)
+            loss = masked.sum() / denom
+    else:
+        loss = loss_vec.mean()
+
+    # --- 예측 (원래 targets shape로 복원) ---
+    pred = logits.argmax(dim=-1).view(*targets.shape)
+
+    return loss, pred
 
 # # Main function: input = CLIP vector → output = "goal_text, action_text"
 # def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
@@ -575,9 +708,9 @@ class GaussianBitDiffusion(nn.Module):
                     obs_cond=obs_cond, # frames
                     self_cond=self_cond,
                 )
-                self_cond = causal_attention_summary(infer_goal[-1].detach())
+                #self_cond = causal_attention_summary(infer_goal[-1].detach())
                 
-                #self_cond = infer_goal[-1].detach()
+                self_cond = infer_goal[-1].detach()
 
         # REVERSE STEP
         _, model_out_goal = self.goalmodel(
@@ -597,13 +730,11 @@ class GaussianBitDiffusion(nn.Module):
         
         #self_cond = torch.zeros_like(x_0).to(x_0.device)
         #self_cond = torch.zeros_like(model_out_goal[-1]).to(model_out_goal.device)
+        self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], 2*model_out_goal.shape[3]), device=model_out_goal.device)
         # SELF-CONDITIONING
         if torch.rand((1)) < 0.5 and self.condition_x0:
-            self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
-            # (B, T, C)
-            #print(model_out_goal.shape, x_0.shape, "--------------------*****")
             with torch.no_grad():
-                self_cond, _ = self.model(
+                _, self_cond = self.model(
                     x=x_t, 
                     t=t, 
                     stage_masks=mask_all,
@@ -612,10 +743,8 @@ class GaussianBitDiffusion(nn.Module):
                 )
                 self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
-            #print(self_cond.shape, "******************")
-                
-        else:
-            self_cond = torch.zeros_like(x_0).to(x_0.device)
+        # else:
+        #     self_cond = torch.zeros_like(x_0).to(x_0.device)
             
         ## concat: 
         ## self_cond: (b,t,c)
@@ -626,7 +755,7 @@ class GaussianBitDiffusion(nn.Module):
         self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
         
         # REVERSE STEP
-        model_out,_ = self.model(
+        _, model_out = self.model(
             x=x_t,
             t=t,
             stage_masks=mask_all,
@@ -646,7 +775,7 @@ class GaussianBitDiffusion(nn.Module):
         # KL (q(x_t-1 | x_o, x_t) || p(x_t-1 | x_t))
         if self.loss_type == 'l2':
             target = repeat(target, 'b t c -> s b t c', s=model_out.shape[0])
-              
+            
             mask_all = torch.stack(mask_all, dim=0)
             loss = self.loss_fn(model_out, target, reduction="none")  # S x B x T x C
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
@@ -747,27 +876,27 @@ class GaussianBitDiffusion(nn.Module):
         #     plt.savefig(f'subgoal_{i}.png', dpi=150, bbox_inches='tight', pad_inches=0)
         #     plt.close()
 
-        decoded_texts = []
-        # for i in range(25):
-        #     print(goal_features.shape, goal_features[0].shape)
-        text = decode_clip_embedding_to_text(goal_features[0])
-        print(f"///////////////// goal: {text} ///////////////////////")
+        # decoded_texts = []
+        # # for i in range(25):
+        # #     print(goal_features.shape, goal_features[0].shape)
+        # text = decode_clip_embedding_to_text(goal_features[0])
+        # print(f"///////////////// goal: {text} ///////////////////////")
 
-        # 텍스트 디코딩 + 저장
-        for i in range(infer_goal.shape[1]):
-            clip_vec = infer_goal[0][i]
+        # # 텍스트 디코딩 + 저장
+        # for i in range(infer_goal.shape[1]):
+        #     clip_vec = infer_goal[0][i]
             
-            text = decode_clip_embedding_to_text(clip_vec)
-            decoded_texts.append(text)
-            print(f"[{i}] {text}")
+        #     text = decode_clip_embedding_to_text(clip_vec)
+        #     decoded_texts.append(text)
+        #     print(f"[{i}] {text}")
 
-        # 결과를 파일에 저장
-        output_path = "decoded_subgoals.txt"
-        with open(output_path, "w", encoding="utf-8") as f:
-            for line in decoded_texts:
-                f.write(str(line) + "\n")
+        # # 결과를 파일에 저장
+        # output_path = "decoded_subgoals.txt"
+        # with open(output_path, "w", encoding="utf-8") as f:
+        #     for line in decoded_texts:
+        #         f.write(str(line) + "\n")
 
-        print(f"\n✅ completed: {output_path}")
+        # print(f"\n✅ completed: {output_path}")
 
         
         self_cond = torch.cat([self_cond, infer_goal], dim=2)
