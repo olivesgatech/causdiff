@@ -319,59 +319,157 @@ def pick_darai_action_by_similarity(model_out, clip_model, device="cuda"):
     idx = int(top_idxs[r].item())
     return action_ids[idx]
 
+def build_action_feats(DARAI_ACTION, clip_model, device="cuda"):
+    import clip
+    texts = [DARAI_ACTION[i] for i in sorted(DARAI_ACTION.keys())]
+    with torch.no_grad():
+        toks = clip.tokenize(texts).to(device)
+        feats = clip_model.encode_text(toks).float()
+    return F.normalize(feats, dim=-1)  # (A,512)
+
+# def ce_loss_with_clip_head(
+#     model_out,
+#     action_feats,
+#     targets,
+#     temperature: float = 0.07,
+#     mask_all=None,                   # ⬅️ (옵션) 마스크. shape은 targets와 동일한 선행축 (B) 또는 (S,B,T) 등
+#     label_smoothing: float = 0.0,
+#     micro_average: bool = True,      # True면 전체 마스크 합으로 나눠 마이크로 평균
+# ):
+#     """
+#     model_out: (..., 512)  - 예: (B,512) 또는 (B,T,512) 또는 (S,B,T,512)
+#     action_feats: (A,512)  - build_action_feats()로 준비
+#     targets:     (...)     - model_out의 선행축과 동일. 예: (B,) 또는 (B,T) 또는 (S,B,T) [LongTensor]
+#     mask_all:    (...)     - targets와 브로드캐스트 호환되는 마스크 (0/1). 예: (B,) / (B,T) / (S,B,T)
+#     반환: (loss: scalar, pred: targets.shape의 예측 인덱스)
+#     """
+#     D = action_feats.size(-1)
+#     dev = action_feats.device
+#     x = model_out
+#     if not isinstance(x, torch.Tensor):
+#         x = torch.as_tensor(x)
+#     x = x.to(dev).float()
+#     x = x.view(-1, D)
+#     x = F.normalize(x, dim=-1)                        # (N,512)
+
+#     logits = x @ action_feats.to(dev).t() / float(temperature)   # (N,A)
+
+#     tgt = torch.as_tensor(targets, device=dev)
+#     tgt = tgt.argmax(dim=-1)
+#     tgt = tgt.reshape(-1).long()             # (N,)
+    
+#     loss_vec = F.cross_entropy(
+#         logits, tgt, reduction='none', label_smoothing=label_smoothing
+#     )                                                 # (N,)
+
+#     if mask_all is not None:
+#         m = torch.as_tensor(mask_all, device=dev, dtype=loss_vec.dtype).reshape(-1)  # (N,)
+#         masked = loss_vec * m
+#         if micro_average:
+#             denom = m.sum().clamp_min(1e-6)
+#             loss = masked.sum() / denom
+#         else:
+#             # 필요 시 per-sample 평균으로 바꾸고 싶으면 여기서 그룹 단위로 나눠도 됨
+#             denom = (m > 0).float().sum().clamp_min(1e-6)
+#             loss = masked.sum() / denom
+#     else:
+#         loss = loss_vec.mean()
+
+#     pred_flat = logits.argmax(dim=-1)            # (N,)
+#     pred = pred_flat.reshape(*tgt.shape) 
+
+#     return loss#, pred
+
 def ce_loss_with_clip_head(
     model_out,
-    action_feats,
-    targets,
+    action_feats,                  # (A,512)  = DARAI_ACTION 텍스트를 CLIP으로 임베딩한 프로토타입
+    targets,                       # (...,512) 임베딩  또는 (...,A) 원-핫  또는 (...,) 인덱스
     temperature: float = 0.07,
-    mask_all=None,                   # ⬅️ (옵션) 마스크. shape은 targets와 동일한 선행축 (B) 또는 (S,B,T) 등
+    mask_all=None,                 # (같은 leading shape) 마스크 0/1
     label_smoothing: float = 0.0,
-    micro_average: bool = True,      # True면 전체 마스크 합으로 나눠 마이크로 평균
+    micro_average: bool = True,
+    class_mask=None,               # (K,) 허용 클래스 인덱스. None이면 0..A-1 모두 허용
+    debug: bool = False,
 ):
     """
-    model_out: (..., 512)  - 예: (B,512) 또는 (B,T,512) 또는 (S,B,T,512)
-    action_feats: (A,512)  - build_action_feats()로 준비
-    targets:     (...)     - model_out의 선행축과 동일. 예: (B,) 또는 (B,T) 또는 (S,B,T) [LongTensor]
-    mask_all:    (...)     - targets와 브로드캐스트 호환되는 마스크 (0/1). 예: (B,) / (B,T) / (S,B,T)
-    반환: (loss: scalar, pred: targets.shape의 예측 인덱스)
+    model_out: (..., 512)           e.g. (S,B,T,512)
+    action_feats: (A,512)           A=48
+    targets:   (...,512) 임베딩 or (...,A) 원-핫 or (...,) 인덱스
+    class_mask: 허용할 클래스의 인덱스 리스트/LongTensor. 제공 시 해당 subset에 대해서만 CE 계산.
+    반환: (loss, pred)  pred의 shape = targets의 leading shape (클래스 축 제외)
     """
-    # --- 준비 ---
-    D = action_feats.size(-1)
     dev = action_feats.device
-    x = model_out
-    if not isinstance(x, torch.Tensor):
-        x = torch.as_tensor(x)
-    x = x.to(dev).float()
+    A, D = action_feats.shape
+    leading_shape = tuple(model_out.shape[:-1])        # ex) (S,B,T)
+    N = int(torch.tensor(leading_shape).clamp_min(1).prod().item()) if len(leading_shape) else model_out.shape[0]
 
-    # 선행축(=샘플/시퀀스 차원)을 모두 펼쳐 (N,D)로
-    x = x.view(-1, D)
-    x = F.normalize(x, dim=-1)                        # (N,512)
+    # --- 1) 로짓: (N,A) ---
+    x = torch.as_tensor(model_out, device=dev, dtype=torch.float32).reshape(-1, D)
+    x = F.normalize(x, dim=-1)
+    proto = F.normalize(action_feats, dim=-1)          # (A,512)
+    logits_full = x @ proto.to(dev).t() / float(temperature)  # (N,A)
 
-    logits = x @ action_feats.to(dev).t() / float(temperature)   # (N,A)
+    # --- 2) 타깃을 "정수 인덱스"로 통일 ---
+    tgt = torch.as_tensor(targets, device=dev)
+    if tgt.shape == leading_shape + (D,):              # (...,512) 임베딩 → 최근접 클래스
+        t = F.normalize(tgt.reshape(-1, D).float(), dim=-1)       # (N,512)
+        tgt_logits = t @ proto.to(dev).t() / float(temperature)   # (N,A)
+        tgt_idx = tgt_logits.argmax(dim=-1)                       # (N,)
+    elif tgt.shape == leading_shape + (A,):            # (...,A) 원-핫/소프트 → argmax
+        tgt_idx = tgt.argmax(dim=-1).reshape(-1).long()           # (N,)
+    else:                                              # (...,) 인덱스
+        tgt_idx = tgt.reshape(-1).long()                            
 
-    tgt = targets.to(dev).view(-1).long()             # (N,)
-    loss_vec = F.cross_entropy(
-        logits, tgt, reduction='none', label_smoothing=label_smoothing
-    )                                                 # (N,)
+    # 길이 맞추기(안전 가드)
+    if tgt_idx.numel() != logits_full.size(0):
+        minN = min(tgt_idx.numel(), logits_full.size(0))
+        tgt_idx    = tgt_idx[:minN]
+        logits_full = logits_full[:minN]
+        if mask_all is not None:
+            mask_all = torch.as_tensor(mask_all, device=dev)
+            mask_all = mask_all.reshape(-1)[:minN]
 
-    # --- 마스크 적용 ---
+    # --- 3) 클래스 마스크(선택): 특정 클래스만 허용하고 싶을 때 ---
+    if class_mask is not None:
+        allow = torch.as_tensor(class_mask, device=dev, dtype=torch.long)  # (K,)
+        # 로짓을 허용된 클래스 열만 고름 → (N,K)
+        logits = logits_full.index_select(dim=1, index=allow)
+
+        # 원래 인덱스를 subset 인덱스로 매핑, 허용 외는 ignore_index로 마스킹
+        ignore_index = -100
+        map_table = -torch.ones(A, device=dev, dtype=torch.long)  # default -1
+        map_table[allow] = torch.arange(allow.numel(), device=dev)
+        tgt_mapped = map_table[tgt_idx]                           # (N,)
+        # 허용되지 않은 타깃은 무시되도록 CE(ignore_index) 사용
+        loss_vec = F.cross_entropy(
+            logits, tgt_mapped, reduction='none',
+            label_smoothing=label_smoothing, ignore_index=ignore_index
+        )
+        # 예측 (subset 내 argmax → 원래 인덱스로 복원)
+        pred_idx = allow[logits.argmax(dim=-1)]
+    else:
+        logits = logits_full                                     # (N,A)
+        loss_vec = F.cross_entropy(
+            logits, tgt_idx, reduction='none', label_smoothing=label_smoothing
+        )
+        pred_idx = logits.argmax(dim=-1)                         # (N,)
+
+    # --- 4) 마스크 적용 & 리덕션 ---
     if mask_all is not None:
-        m = torch.as_tensor(mask_all, device=dev, dtype=loss_vec.dtype).view(-1)  # (N,)
-        masked = loss_vec * m
+        m = torch.as_tensor(mask_all, device=dev, dtype=loss_vec.dtype).reshape(-1)
+        minN = min(m.numel(), loss_vec.numel())
+        m, loss_vec, pred_idx = m[:minN], loss_vec[:minN], pred_idx[:minN]
         if micro_average:
-            denom = m.sum().clamp_min(1e-6)
-            loss = masked.sum() / denom
+            loss = (loss_vec * m).sum() / m.sum().clamp_min(1e-6)
         else:
-            # 필요 시 per-sample 평균으로 바꾸고 싶으면 여기서 그룹 단위로 나눠도 됨
-            denom = (m > 0).float().sum().clamp_min(1e-6)
-            loss = masked.sum() / denom
+            loss = (loss_vec * m).sum() / (m > 0).float().sum().clamp_min(1e-6)
     else:
         loss = loss_vec.mean()
 
-    # --- 예측 (원래 targets shape로 복원) ---
-    pred = logits.argmax(dim=-1).view(*targets.shape)
+    # --- 5) 예측을 원래 leading shape로 복원 ---
+    pred = pred_idx.reshape(*leading_shape) if len(leading_shape) else pred_idx
+    return loss
 
-    return loss, pred
 
 # # Main function: input = CLIP vector → output = "goal_text, action_text"
 # def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
@@ -565,6 +663,11 @@ class GaussianBitDiffusion(nn.Module):
         self.clip = clip_model
         for param in self.clip.parameters():
             param.requires_grad = False
+
+        self.alpha = nn.Parameter(torch.full((1,1,512), 0.0))
+        self.action_feats = build_action_feats(DARAI_ACTION, self.clip)
+        self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
+        self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
     
     def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
@@ -663,7 +766,23 @@ class GaussianBitDiffusion(nn.Module):
                 noise=None):
         condition = False
         # SAMPLE x_t from q(x_t | x_o)
+        
+        ############## GUESS LABEL ###################
         x_start = x_0
+        ###############################################
+        ############## GUESS SEMANTIC ###################
+        # targets_idx_bt = x_0.argmax(dim=-1)
+        # B, T = targets_idx_bt.shape
+        # idx_flat = targets_idx_bt.reshape(-1).tolist()
+        # texts_flat = [self.id2text[i] for i in idx_flat]
+        # with torch.no_grad():
+        #     toks = clip.tokenize(texts_flat).to(gt_goal.device)              # (B*T, ctx_len)
+        #     feats = self.clip.encode_text(toks).float()              # (B*T, 512)
+        #     feats = F.normalize(feats, dim=-1)
+
+        # x_start = feats.view(B, T, -1)                               # (B,T,512)
+        # x_start = self.emb_norm(x_start)
+        ###############################################
         
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
@@ -730,7 +849,7 @@ class GaussianBitDiffusion(nn.Module):
         
         #self_cond = torch.zeros_like(x_0).to(x_0.device)
         #self_cond = torch.zeros_like(model_out_goal[-1]).to(model_out_goal.device)
-        self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], 2*model_out_goal.shape[3]), device=model_out_goal.device)
+        self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], model_out_goal.shape[3]), device=model_out_goal.device)
         # SELF-CONDITIONING
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
@@ -751,18 +870,18 @@ class GaussianBitDiffusion(nn.Module):
         ## goal_logits[-1]: (b,1,c)
         #goal_repeat = goal_logits[-1].expand(-1, self_cond.shape[1], -1) # (b,1,c)->(b,t,c)
         goal_repeat = subgoal_seq[-1] # (B x T x C)
-        
-        self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
-        
+        alpha = torch.sigmoid(self.alpha)
+        self_cond = alpha * self_cond + (1 - alpha) * goal_repeat
+        #self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
         # REVERSE STEP
-        _, model_out = self.model(
+        model_logit, model_out = self.model(
             x=x_t,
             t=t,
             stage_masks=mask_all,
             obs_cond=obs_cond,
             self_cond=self_cond,
         )  # S x B x T x C
-        
+
         # LOSS
         if self.objective == "pred_noise":
             target = noise
@@ -777,8 +896,9 @@ class GaussianBitDiffusion(nn.Module):
             target = repeat(target, 'b t c -> s b t c', s=model_out.shape[0])
             
             mask_all = torch.stack(mask_all, dim=0)
-            loss = self.loss_fn(model_out, target, reduction="none")  # S x B x T x C
+            loss = self.loss_fn(model_logit, target, reduction="none")  # S x B x T x C
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
+            loss += ce_loss_with_clip_head(model_out, self.action_feats, target, mask_all=mask_all)
             if gt_goal is not None:
                 ### goal diffusion: goal_logits (S x B x 1 x C)
                 ### action diffusion: model_out (S x B x T x C)

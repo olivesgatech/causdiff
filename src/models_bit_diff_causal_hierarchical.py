@@ -57,7 +57,6 @@ class BitDiffPredictorTCN(nn.Module):
         obs_cond = rearrange(obs_cond, 'b t c -> b c t')
         self_cond = rearrange(self_cond, 'b t c -> b c t')
         stage_masks = [rearrange(mask, "b t c -> b c t") for mask in stage_masks]
-        #print(obs_cond.shape, self_cond.shape, "-----")
         if self.use_inp_ch_dropout:
             x = self.channel_dropout(x)
         
@@ -65,8 +64,6 @@ class BitDiffPredictorTCN(nn.Module):
         
         x = torch.cat((x, obs_cond), dim=1)
         x = torch.cat((x, self_cond), dim=1)
-
-        #print("x shape: ", x.shape)
         
         frame_wise_pred, frame_wise_feature = self.ms_tcn(x, t, stage_masks)
         frame_wise_pred = rearrange(frame_wise_pred, "s b c t -> s b t c")
