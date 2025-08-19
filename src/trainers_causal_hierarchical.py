@@ -46,8 +46,8 @@ class TrainerTCN:
         elif self.m_name == 'bit-diff-pred-tcn':
             self.prob = True
             
-            #self.model = BitDiffPredictorTCN(args, causal=causal, num_classes=args.num_classes, concat_channel=int(args.num_highlevel_classes)+2*args.num_classes)
-            self.model = BitDiffPredictorTCN(args, causal=causal, num_classes=int(args.num_highlevel_classes), concat_channel=2*int(args.num_highlevel_classes))
+            self.model = BitDiffPredictorTCN(args, causal=causal, num_classes=args.num_classes, concat_channel=int(args.num_highlevel_classes)+2*args.num_classes)
+            #self.model = BitDiffPredictorTCN(args, causal=causal, num_classes=int(args.num_highlevel_classes), concat_channel=2*int(args.num_highlevel_classes))
             ################### 4/20 added hierarchical diffusion ###########################
             self.goalmodel = BitDiffPredictorTCN(args, causal=causal, num_classes=int(args.num_highlevel_classes), concat_channel=2*int(args.num_highlevel_classes))
             #################################################################################

@@ -7,8 +7,8 @@ import numpy as np
 import torch
 
 from trainers_causal_hierarchical import TrainerTCN
-from batch_gen import BatchGeneratorTCN
-#from batch_gen_darai import BatchGeneratorTCN
+#from batch_gen import BatchGeneratorTCN
+from batch_gen_darai import BatchGeneratorTCN
 
 from batch_gen_assembly import BatchGeneratorAssembly101TCN
 
@@ -60,7 +60,7 @@ parser.add_argument('--use_inp_ch_dropout', action='store_true')
 
 parser.add_argument('--kernel_size', default=3, type=int)
 parser.add_argument('--model_dim', default=64, type=int)
-parser.add_argument('--input_dim', default=2048, type=int)
+parser.add_argument('--input_dim', default=2048, type=int) ### 512 vs. 2048
 parser.add_argument('--channel_dropout_prob', default=0.4, type=float)
 
 
