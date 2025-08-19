@@ -145,7 +145,7 @@ class BaseDataset(Dataset):
 
 def main():
     # 경로 설정
-    train_split_path = '/home/seulgi/work/darai-anticipation/FUTR_proposed/datasets/darai/splits/test_split.txt'
+    train_split_path = '/home/seulgi/work/darai-anticipation/FUTR_proposed/datasets/darai/splits/val_split.txt'
     l2_mapping_file = '/home/seulgi/work/darai-anticipation/FUTR_proposed/datasets/darai/mapping_l2.txt'
     l3_mapping_file = '/home/seulgi/work/darai-anticipation/FUTR_proposed/datasets/darai/mapping_l3.txt'
     save_dir = '/home/seulgi/work/causdiff/datasets/darai/features_clip'  # 시퀀스를 저장할 디렉터리 경로
