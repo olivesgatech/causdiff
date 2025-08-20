@@ -12,14 +12,15 @@ L2_LABELS = [
 
 def render_l2_from_subgoal_embeddings(
     subgoal_embeddings,
-    outdir,
+    outfile,
+    outdir='./src/visualizations/',
     label_embs=None,          # Optional np.ndarray [C, D]; if None, uses OpenCLIP text encodings
     labels=None,              # Optional list of label strings; default L2_LABELS (len must match C)
     embed_dim=512,            # D; also used to reshape if 1-D input provided
     make_legend=True,         # Whether to save the legend image
     openclip_arch="ViT-B-32", # OpenCLIP model for text embeddings (if label_embs is None)
     openclip_ckpt="openai",
-    device=None               # "cuda" or "cpu"; auto if None
+    device="cuda"               # "cuda" or "cpu"; auto if None
 ):
     """
     Generate:
@@ -117,7 +118,7 @@ def render_l2_from_subgoal_embeddings(
     top_scores = sims[np.arange(T), top_idx]
 
     # --- save CSV ---
-    csv_path = os.path.join(outdir, "time_to_label.csv")
+    csv_path = os.path.join(outdir, f"{outfile}_time_to_label.csv")
     with open(csv_path, "w", encoding="utf-8") as f:
         f.write("time_index,label_index,score\n")
         for t, (idx, sc) in enumerate(zip(top_idx, top_scores)):
@@ -135,7 +136,7 @@ def render_l2_from_subgoal_embeddings(
     plt.imshow(img, aspect="auto", interpolation="nearest")
     plt.axis("off")
     plt.tight_layout()
-    strip_path = os.path.join(outdir, "l2_color_strip.png")
+    strip_path = os.path.join(outdir, f"{outfile}_l2_color_strip.png")
     plt.savefig(strip_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close()
 
@@ -150,8 +151,8 @@ def render_l2_from_subgoal_embeddings(
         ax.set_yticklabels(labels, fontsize=8)
         ax.set_xticks([])
         ax.set_xlim(0, 1.0)
-        legend_path = os.path.join(outdir, "l2_color_legend.png")
+        legend_path = os.path.join(outdir, f"{outfile}_l2_color_legend.png")
         fig.savefig(legend_path, dpi=200, bbox_inches="tight")
         plt.close(fig)
 
-    return {"csv": csv_path, "strip": strip_path, **({"legend": legend_path} if legend_path else {})}
+    #return {"csv": csv_path, "strip": strip_path, **({"legend": legend_path} if legend_path else {})}

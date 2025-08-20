@@ -771,45 +771,14 @@ class GaussianBitDiffusion(nn.Module):
         condition = False
         # SAMPLE x_t from q(x_t | x_o)
         
-        ############## GUESS LABEL ###################
         x_start = x_0
-        ###############################################
-        ############## GUESS SEMANTIC ###################
-        # targets_idx_bt = x_0.argmax(dim=-1)
-        # B, T = targets_idx_bt.shape
-        # idx_flat = targets_idx_bt.reshape(-1).tolist()
-        # texts_flat = [self.id2text[i] for i in idx_flat]
-        # with torch.no_grad():
-        #     toks = clip.tokenize(texts_flat).to(gt_goal.device)              # (B*T, ctx_len)
-        #     feats = self.clip.encode_text(toks).float()              # (B*T, 512)
-        #     feats = F.normalize(feats, dim=-1)
-
-        # x_start = feats.view(B, T, -1)                               # (B,T,512)
-        # x_start = self.emb_norm(x_start)
-        ###############################################
         
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # sample: goal
         _, T, _ = gt_goal_one_hot.shape
-        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-
-        # ## minilm tokenization
-        # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
-        # with torch.no_grad():
-        #     outputs = self.text_encoder(**goal_inputs)
-        #     goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
-
-        # CLIP Tokenization
-        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
-        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
-
-        # 2. 확장 (time axis 맞추기)
-        goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
-        #goal_start = gt_goal_one_hot # (16, 1816, 10)
+        goal_start = gt_goal_one_hot # (16, 1816, 10)
         goal_noise = None
         goal_noise = default(goal_noise, lambda: torch.randn_like(goal_start))
         
@@ -819,24 +788,21 @@ class GaussianBitDiffusion(nn.Module):
         obs_cond = obs * mask_past
 
         # SELF-CONDITIONING
-        #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
+        self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
         
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
-                _, infer_goal = self.goalmodel(
+                infer_goal,_  = self.goalmodel(
                     x=goal_t, 
                     t=t, 
                     stage_masks=mask_all,
                     obs_cond=obs_cond, # frames
                     self_cond=self_cond,
                 )
-                #self_cond = causal_attention_summary(infer_goal[-1].detach())
-                
                 self_cond = infer_goal[-1].detach()
 
         # REVERSE STEP
-        _, model_out_goal = self.goalmodel(
+        model_out_goal,_ = self.goalmodel(
             x=goal_t,
             t=t,
             stage_masks=mask_all,
@@ -844,20 +810,17 @@ class GaussianBitDiffusion(nn.Module):
             self_cond=self_cond,
         )  # S x B x T x C
 
-        subgoal_seq = model_out_goal # (S x B x T x C)
-        #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
-        gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
-        # gt_goal_one_hot = repeat(gt_goal_one_hot, 'b 1 c -> s b 1 c', s=goal_logits.shape[0])
-        
-        #loss_goal = self.loss_fn(goal_logits, gt_goal_one_hot, reduction="none")
+        goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
+        #gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
         
         #self_cond = torch.zeros_like(x_0).to(x_0.device)
+        self_cond = torch.zeros((x_0.shape[0], x_0.shape[1], x_0.shape[2] * 2), device=gt_goal_one_hot.device)
         #self_cond = torch.zeros_like(model_out_goal[-1]).to(model_out_goal.device)
         #self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], model_out_goal.shape[3]), device=model_out_goal.device)
         # SELF-CONDITIONING
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
-                self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
+                #self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
                 self_cond, _ = self.model(
                     x=x_t, 
                     t=t, 
@@ -867,16 +830,12 @@ class GaussianBitDiffusion(nn.Module):
                 )
                 self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
-        else:
-            self_cond = torch.zeros_like(x_0).to(x_0.device)
             
         ## concat: 
         ## self_cond: (b,t,c)
         ## goal_logits[-1]: (b,1,c)
-        #goal_repeat = goal_logits[-1].expand(-1, self_cond.shape[1], -1) # (b,1,c)->(b,t,c)
-        goal_repeat = subgoal_seq[-1] # (B x T x C)
-        #alpha = torch.sigmoid(self.alpha)
-        #self_cond = alpha * self_cond + (1 - alpha) * goal_repeat
+        goal_repeat = goal_logits[-1].expand(-1, self_cond.shape[1], -1) # (b,1,c)->(b,t,c)
+        
         self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
         # REVERSE STEP
         model_out, _ = self.model(
@@ -905,12 +864,14 @@ class GaussianBitDiffusion(nn.Module):
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
             #loss += ce_loss_with_clip_head(model_out, self.action_feats, target, mask_all=mask_all)
             if gt_goal is not None:
+                gt_goal_one_hot = repeat(gt_goal_one_hot, 'b 1 c -> s b 1 c', s=goal_logits.shape[0])
+                loss_goal = self.loss_fn(goal_logits, gt_goal_one_hot, reduction="none")
                 ### goal diffusion: goal_logits (S x B x 1 x C)
                 ### action diffusion: model_out (S x B x T x C)
-                loss_goal = self.semantic_consistency_loss(
-                    subgoal_features=subgoal_seq,
-                    global_goal=goal_start
-                )
+                # loss_goal = self.semantic_consistency_loss(
+                #     subgoal_features=subgoal_seq,
+                #     global_goal=goal_start
+                # )
                 #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
                 loss += loss_goal
 
