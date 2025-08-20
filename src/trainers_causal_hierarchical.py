@@ -23,6 +23,7 @@ from evaluation import *
 # CLIP
 import clip
 clip_model, _ = clip.load("ViT-B/32", device='cuda')
+# clip_model = None
 
 class TrainerTCN:
     def __init__(self, args, causal=False):
@@ -84,6 +85,8 @@ class TrainerTCN:
         # MODEL
         if self.prob:
             self.diffusion = self.diffusion.to(device)
+            if args.epoch != 0:
+                self.diffusion.model.load_state_dict(torch.load(save_dir + '/epoch-' + str(args.epoch) + ".model"), strict=True)
             self.diffusion.train()
             
             self.ema_diffusion = EMA(model=self.diffusion,
@@ -105,7 +108,7 @@ class TrainerTCN:
 
         # TRAIN
         print('Start Training...')
-        for epoch in range(args.num_epochs + 1):
+        for epoch in range(args.epoch, args.num_epochs + 1):
             epoch_loss = 0
             epoch_ce_loss = 0
         
