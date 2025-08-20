@@ -811,16 +811,16 @@ class GaussianBitDiffusion(nn.Module):
         )  # S x B x T x C
 
         goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
-        #gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
+        gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
         
         #self_cond = torch.zeros_like(x_0).to(x_0.device)
-        self_cond = torch.zeros((x_0.shape[0], x_0.shape[1], x_0.shape[2] * 2), device=gt_goal_one_hot.device)
+        #self_cond = torch.zeros((x_0.shape[0], x_0.shape[1], x_0.shape[2] * 2), device=gt_goal_one_hot.device)
         #self_cond = torch.zeros_like(model_out_goal[-1]).to(model_out_goal.device)
         #self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], model_out_goal.shape[3]), device=model_out_goal.device)
         # SELF-CONDITIONING
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
-                #self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
+                self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
                 self_cond, _ = self.model(
                     x=x_t, 
                     t=t, 
@@ -830,6 +830,8 @@ class GaussianBitDiffusion(nn.Module):
                 )
                 self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
+        else:
+            self_cond = torch.zeros_like(x_0).to(x_0.device)
             
         ## concat: 
         ## self_cond: (b,t,c)
@@ -872,7 +874,7 @@ class GaussianBitDiffusion(nn.Module):
                 #     subgoal_features=subgoal_seq,
                 #     global_goal=goal_start
                 # )
-                #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
+                loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
                 loss += loss_goal
 
         # OUT
