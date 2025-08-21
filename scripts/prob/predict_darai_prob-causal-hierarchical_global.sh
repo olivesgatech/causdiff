@@ -16,20 +16,20 @@ OPTS="--model_dir=/home/seulgi/work/causdiff/model/darai/diff \
       --num_diff_timesteps 1000 \
       --diff_loss_type l2 \
       --diff_obj pred_x0 \
-      --action=train \
+      --action=val \
       --ds=bf \
       --bz=16 \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
       --num_epochs=100 \
-      --epoch=100 \
+      --epoch=85 \
       --num_stages=5 \
       --obs_stages=0 \
       --ant_stages=5 \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
-      --num_highlevel_classes=384 \
-      --date=202508190909 \
+      --num_highlevel_classes=10 \
+      --date=202508201248 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS

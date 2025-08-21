@@ -28,8 +28,8 @@ OPTS="--model_dir=/home/seulgi/work/causdiff/model/darai/diff \
       --ant_stages=5 \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
-      --num_highlevel_classes=384 \
-      --date=202508081911 \
+      --num_highlevel_classes=512 \
+      --date=202508081340 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS
