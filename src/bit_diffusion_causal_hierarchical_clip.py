@@ -18,6 +18,7 @@ import os, re, glob
 from subgoal_text_matching import render_l2_from_subgoal_embeddings
 from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spectrum
 import random
+from causal_attention import CausalAttention
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
@@ -672,6 +673,8 @@ class GaussianBitDiffusion(nn.Module):
         self.action_feats = build_action_feats(DARAI_ACTION, self.clip)
         self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
         self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
+
+        self.attn = CausalAttention(d_model=512, n_heads=8, num_goal_tokens=4, share_qkv=True, causal_mask=False)
     
     def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
@@ -832,8 +835,8 @@ class GaussianBitDiffusion(nn.Module):
                     self_cond=self_cond,
                 )
                 #self_cond = causal_attention_summary(infer_goal[-1].detach())
-                
-                self_cond = infer_goal[-1].detach()
+                self_cond = self.attn(infer_goal[-1].detach(), goal_features)
+                #self_cond = infer_goal[-1].detach()
 
         # REVERSE STEP
         _, model_out_goal = self.goalmodel(
