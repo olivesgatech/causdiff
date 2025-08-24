@@ -22,14 +22,14 @@ OPTS="--model_dir=/home/seulgi/work/causdiff/model/darai/diff \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
       --num_epochs=100 \
-      --epoch=100 \
+      --epoch=0 \
       --num_stages=5 \
       --obs_stages=0 \
       --ant_stages=5 \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
-      --num_highlevel_classes=384 \
-      --date=202508190909 \
+      --num_highlevel_classes=512 \
+      --date=202508241659 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS
