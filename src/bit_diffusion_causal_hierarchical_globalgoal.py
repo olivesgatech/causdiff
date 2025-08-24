@@ -935,7 +935,7 @@ class GaussianBitDiffusion(nn.Module):
             #self_cond = self_cond
         )
 
-        #random_sample = random.randint(0,4)
+        random_sample = random.randint(0,4)
         #render_l2_from_subgoal_embeddings(infer_goal[random_sample][0].cpu(), t)
         #cluster_goal_embeddings(infer_goal[random_sample][0].cpu(), t)
         infer_goal = infer_goal[-1] # (25, 106, 512)
@@ -989,7 +989,7 @@ class GaussianBitDiffusion(nn.Module):
             self_cond=self_cond,
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
-        #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
+        action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":

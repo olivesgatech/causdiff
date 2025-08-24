@@ -1041,7 +1041,7 @@ class GaussianBitDiffusion(nn.Module):
             self_cond=self_cond,
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
-        #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
+        action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":

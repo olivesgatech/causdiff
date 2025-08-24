@@ -491,6 +491,7 @@ import torch.nn.functional as F
 from einops import repeat, rearrange
 from torch import nn
 from tqdm import tqdm
+from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spectrum
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -715,25 +716,26 @@ class GaussianBitDiffusion(nn.Module):
         self_cond = torch.zeros_like(x_0).to(x_0.device)
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
-                self_cond = self.model(
+                self_cond,_ = self.model(
                     x=x_t, 
                     t=t, 
                     stage_masks=mask_all,
                     obs_cond=obs_cond, 
                     self_cond=self_cond
-                )[-1]
+                )
+                self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
 
         
         # REVERSE STEP
-        model_out = self.model(
+        model_out, _ = self.model(
             x=x_t,
             t=t,
             stage_masks=mask_all,
             obs_cond=obs_cond,
             self_cond=self_cond
         )  # S x B x T x C
-        
+
 
         # LOSS
         if self.objective == "pred_noise":
@@ -793,13 +795,15 @@ class GaussianBitDiffusion(nn.Module):
           
           
         # PRED
-        model_output = self.model(
+        model_output,model_feature = self.model(
             x=x_t,
             t=t,
             stage_masks=stage_masks,
             obs_cond=obs,
             self_cond=self_cond
-        )[-1]
+        )
+        model_output = model_output[-1]
+        action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         
         if self.objective == "pred_noise":
             pred_noise = model_output 
