@@ -31,7 +31,7 @@ def _effective_rank_from_eigvals(lam, eps=1e-12):
 def cluster_goal_embeddings(
     goal_embeddings,
     outfile,
-    outdir='./src/visualize',
+    outdir='./src/visualize-causal-attention',
     n_clusters=None,
     method="umap",         # "umap" or "pca"
     metric="cosine",
@@ -139,7 +139,7 @@ def cluster_goal_embeddings(
 def action_erank_and_spectrum(
     action_embeddings,
     outfile,
-    outdir='./src/visualize_baseline',
+    outdir='./src/visualize-causal-attention',
     center=True,         # 전체 (N*T) 샘플 평균을 빼서 중심화
     row_normalize=True,  # 각 샘플(행)을 L2 정규화
     dpi=200

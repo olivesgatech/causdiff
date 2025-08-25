@@ -13,7 +13,7 @@ L2_LABELS = [
 def render_l2_from_subgoal_embeddings(
     subgoal_embeddings,
     outfile,
-    outdir='./src/visualizations/',
+    outdir='./src/visualizations-causal-attention/',
     label_embs=None,          # Optional np.ndarray [C, D]; if None, uses OpenCLIP text encodings
     labels=None,              # Optional list of label strings; default L2_LABELS (len must match C)
     embed_dim=512,            # D; also used to reshape if 1-D input provided

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 class CausalAttention(nn.Module):
     """
@@ -77,6 +78,14 @@ class CausalAttention(nn.Module):
             nn.Dropout(dropout),
         )
 
+    def get_sinusoidal_pos_emb(self, T, D, device, dtype):
+        position = torch.arange(T, device=device).unsqueeze(1)  # (T,1)
+        div_term = torch.exp(torch.arange(0, D, 2, device=device) * (-math.log(10000.0) / D))
+        pe = torch.zeros(T, D, device=device, dtype=dtype)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe.unsqueeze(0)  # (1,T,D)
+
     def _attn(self, q, k, v, mask=None, key_padding_mask=None):
         """
         q: (B, h, Tq, Dh), k,v: (B, h, Tk, Dh)
@@ -108,6 +117,7 @@ class CausalAttention(nn.Module):
         """
         z: (B,T,D), g: (B,D), key_padding_mask (optional): (B,T)
         """
+        z = z + self.get_sinusoidal_pos_emb(z.size(1), z.size(2), z.device, z.dtype) # (B,T,D)
         B, T, D = z.shape
         h, Dh = self.n_heads, self.d_head
         device = z.device
