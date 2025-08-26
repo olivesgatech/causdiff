@@ -797,8 +797,8 @@ class GaussianBitDiffusion(nn.Module):
         # sample: goal
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
 
         # ## minilm tokenization
         # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
@@ -835,7 +835,7 @@ class GaussianBitDiffusion(nn.Module):
                     self_cond=self_cond,
                 )
                 #self_cond = causal_attention_summary(infer_goal[-1].detach())
-                self_cond = self.attn(infer_goal[-1].detach(), goal_features)
+                self_cond = self.attn(infer_goal[-1].detach(), goal_features) # (B, T, D)
                 #self_cond = infer_goal[-1].detach()
 
         # REVERSE STEP
@@ -966,8 +966,8 @@ class GaussianBitDiffusion(nn.Module):
         goal_t = goal_x
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
         # # ## minilm tokenization
         # # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
         # # with torch.no_grad():

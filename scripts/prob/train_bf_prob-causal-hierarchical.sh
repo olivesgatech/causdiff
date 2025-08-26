@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-OPTS="--model_dir=/home/seulgi/work/causdiff/model/bf/diff \
-      --results_dir=/home/seulgi/work/causdiff/model/bf/diff\
+OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/bf/diff \
+      --results_dir=/mnt/data-tmp/seulgi/causdiff/model/bf/diff\
       --mapping_file=./datasets/breakfast/mapping.txt \
       --mapping_coarse_file=./datasets/breakfast/mapping_l2.txt \
       --vid_list_file_test=./datasets/breakfast/splits/test.split4.bundle \
@@ -18,7 +18,7 @@ OPTS="--model_dir=/home/seulgi/work/causdiff/model/bf/diff \
       --diff_obj pred_x0 \
       --action=train \
       --ds=bf \
-      --bz=16 \
+      --bz=2 \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
       --num_epochs=100 \
@@ -29,7 +29,7 @@ OPTS="--model_dir=/home/seulgi/work/causdiff/model/bf/diff \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
       --num_highlevel_classes=512 \
-      --date=202508082347 \
+      --date=202508261821 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS
