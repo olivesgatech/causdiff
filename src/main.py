@@ -102,8 +102,8 @@ print("*-----------------------------*")
 
 ''' INITIALIZATION'''
 # GENERAL
-#exp_name = f'{args.date}_{args.ds}_{args.model}_os_{args.obs_stages}_as_{args.ant_stages}_m_dim_{args.model_dim}' 
-exp_name = f'{args.ds}_{args.model}_os_{args.obs_stages}_as_{args.ant_stages}_m_dim_{args.model_dim}' 
+exp_name = f'{args.date}_{args.ds}_{args.model}_os_{args.obs_stages}_as_{args.ant_stages}_m_dim_{args.model_dim}' 
+#exp_name = f'{args.ds}_{args.model}_os_{args.obs_stages}_as_{args.ant_stages}_m_dim_{args.model_dim}' 
 if args.layer_type != 'base':
     exp_name += f'_lt_{args.layer_type}'
 if args.part_obs:

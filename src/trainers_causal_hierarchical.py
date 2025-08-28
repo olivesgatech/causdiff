@@ -445,7 +445,7 @@ class TrainerTCN:
                             masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
                             goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
                             n_samples=args.num_samples,
-                            n_diffusion_steps=args.num_infr_diff_timesteps)
+                            n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
                     tcn_predictions = tcn_predictions.contiguous()
                     loss = 0.
                     ce_loss = 0.

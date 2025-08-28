@@ -63,9 +63,9 @@ class BitDiffPredictorTCN(nn.Module):
         x = torch.cat((x, self_cond), dim=1)
         
         #### For training
-        frame_wise_pred, frame_wise_feature = self.ms_tcn(x, t, stage_masks, high_level_goal.squeeze(0))
+        #frame_wise_pred, frame_wise_feature = self.ms_tcn(x, t, stage_masks, high_level_goal.squeeze(0))
         #### For inference
-        #frame_wise_pred, frame_wise_feature = self.ms_tcn(x, t, stage_masks, high_level_goal)#.squeeze(0))
+        frame_wise_pred, frame_wise_feature = self.ms_tcn(x, t, stage_masks, high_level_goal)#.squeeze(0))
         frame_wise_pred = rearrange(frame_wise_pred, "s b c t -> s b t c")
         return frame_wise_pred, frame_wise_feature
 

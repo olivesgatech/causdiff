@@ -12,7 +12,8 @@ from collections import defaultdict
 # models
 from models import *
 from models_bit_diff import BitDiffPredictorTCN
-from bit_diffusion import GaussianBitDiffusion
+#from bit_diffusion import GaussianBitDiffusion
+from bit_diffusion_globalgoal import GaussianBitDiffusion
 from ema import *
 
 # utils
@@ -219,6 +220,7 @@ class TrainerTCN:
         mask_future_tensor = sample_batched[6]
 
         goals_tensor = sample_batched[9].to(device)
+        goals_one_hot_tensor = sample_batched[10].to(device)
 
         # DEVICE
         features_tensor = features_tensor.to(device)
@@ -277,7 +279,9 @@ class TrainerTCN:
                                                     'x_0': rearrange(classes_one_hot_tensor, 'b c t -> b t c'),
                                                     'obs': rearrange(features_tensor, 'b c t -> b t c'),
                                                     'masks_stages': [rearrange(mt, 'b c t -> b t c') for mt in masks],
-                                                    'goal': goals_tensor})
+                                                    'goal': goals_tensor,
+                                                    'goal_one_hot': rearrange(goals_one_hot_tensor, 'b c t -> b t c')})
+
 
             ce_loss  = torch.tensor(0.)            
 

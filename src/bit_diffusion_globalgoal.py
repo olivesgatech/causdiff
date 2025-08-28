@@ -17,9 +17,7 @@ from transformers import AutoTokenizer, AutoModel
 import os, re, glob
 from subgoal_text_matching import render_l2_from_subgoal_embeddings
 from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spectrum
-from visualize import plot_intentions_2d_GSA, plot_intentions_2d_GS, save_matrix_npy
 import random
-from causal_attention import CausalAttention
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
@@ -199,32 +197,6 @@ def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
 
     return context
 
-# def causal_attention_summary(subgoal_seq: torch.Tensor, h: int = 4) -> torch.Tensor:
-#     B, T, D = subgoal_seq.shape
-#     device = subgoal_seq.device
-#     context = []
-
-#     for t in range(T):
-#         t_start = max(0, t - h)
-#         q = subgoal_seq[:, t:t+1, :]               # (B, 1, D)
-#         k = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
-#         v = subgoal_seq[:, t_start:t+1, :]         # (B, h', D)
-
-#         attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, 1, h')
-#         attn_weights = F.softmax(attn_scores, dim=-1)                    # (B, 1, h')
-#         attended = torch.matmul(attn_weights, v)                         # (B, 1, D)
-
-#         context.append(attended.squeeze(1))  # → (B, D)
-
-#     context = torch.stack(context, dim=1)  # (B, T, D)
-#     return context
-
-def encode_texts(texts, clip_model, device='cuda'):
-    tokens = clip.tokenize(texts).to(device)
-    with torch.no_grad():
-        text_features = clip_model.encode_text(tokens)  # (N, 512)
-        text_features = F.normalize(text_features.float(), dim=-1)
-    return text_features
 
 def decode_clip_embedding_to_text(
     clip_embedding,
@@ -296,95 +268,7 @@ def decode_clip_embedding_to_text(
 
     return results
 
-def pick_darai_action_by_similarity(model_out, clip_model, device="cuda"):
-    """
-    model_out: torch.Tensor or np.ndarray, shape (512,) or (1,512) or (N,512)
-    return: dict (top-1) 또는 list of dicts (top-k)
-            {"index": int, "label": str, "score": float}
-    """
-    # 1) 텍스트 임베딩
-    action_ids = sorted(DARAI_ACTION.keys())
-    action_texts = [DARAI_ACTION[i] for i in action_ids]
-    action_feats = encode_texts_clip(action_texts, clip_model, device)  # (A,512)
 
-    # 2) model_out 정규화 & 2D화
-    if not isinstance(model_out, torch.Tensor):
-        model_out = torch.as_tensor(model_out)
-    model_out = model_out.float().to(device)
-    if model_out.ndim == 1:
-        model_out = model_out.unsqueeze(0)            # (1,512)
-    else:
-        model_out = model_out.reshape(model_out.shape[0], -1)
-        if model_out.shape[0] > 1:
-            model_out = model_out[:1, :]              # 첫 샘플만 사용
-    model_out = F.normalize(model_out, dim=-1)        # (1,512)
-
-    # 3) 코사인 유사도 (정규화 → 내적 = cosine)
-    sims = torch.matmul(model_out, action_feats.t()).squeeze(0)  # (A,)
-    top_vals, top_idxs = torch.topk(sims, k=1, largest=True, sorted=True)
-    idx = int(top_idxs[r].item())
-    return action_ids[idx]
-
-def build_action_feats(DARAI_ACTION, clip_model, device="cuda"):
-    import clip
-    texts = [DARAI_ACTION[i] for i in sorted(DARAI_ACTION.keys())]
-    with torch.no_grad():
-        toks = clip.tokenize(texts).to(device)
-        feats = clip_model.encode_text(toks).float()
-    return F.normalize(feats, dim=-1)  # (A,512)
-
-# def ce_loss_with_clip_head(
-#     model_out,
-#     action_feats,
-#     targets,
-#     temperature: float = 0.07,
-#     mask_all=None,                   # ⬅️ (옵션) 마스크. shape은 targets와 동일한 선행축 (B) 또는 (S,B,T) 등
-#     label_smoothing: float = 0.0,
-#     micro_average: bool = True,      # True면 전체 마스크 합으로 나눠 마이크로 평균
-# ):
-#     """
-#     model_out: (..., 512)  - 예: (B,512) 또는 (B,T,512) 또는 (S,B,T,512)
-#     action_feats: (A,512)  - build_action_feats()로 준비
-#     targets:     (...)     - model_out의 선행축과 동일. 예: (B,) 또는 (B,T) 또는 (S,B,T) [LongTensor]
-#     mask_all:    (...)     - targets와 브로드캐스트 호환되는 마스크 (0/1). 예: (B,) / (B,T) / (S,B,T)
-#     반환: (loss: scalar, pred: targets.shape의 예측 인덱스)
-#     """
-#     D = action_feats.size(-1)
-#     dev = action_feats.device
-#     x = model_out
-#     if not isinstance(x, torch.Tensor):
-#         x = torch.as_tensor(x)
-#     x = x.to(dev).float()
-#     x = x.view(-1, D)
-#     x = F.normalize(x, dim=-1)                        # (N,512)
-
-#     logits = x @ action_feats.to(dev).t() / float(temperature)   # (N,A)
-
-#     tgt = torch.as_tensor(targets, device=dev)
-#     tgt = tgt.argmax(dim=-1)
-#     tgt = tgt.reshape(-1).long()             # (N,)
-    
-#     loss_vec = F.cross_entropy(
-#         logits, tgt, reduction='none', label_smoothing=label_smoothing
-#     )                                                 # (N,)
-
-#     if mask_all is not None:
-#         m = torch.as_tensor(mask_all, device=dev, dtype=loss_vec.dtype).reshape(-1)  # (N,)
-#         masked = loss_vec * m
-#         if micro_average:
-#             denom = m.sum().clamp_min(1e-6)
-#             loss = masked.sum() / denom
-#         else:
-#             # 필요 시 per-sample 평균으로 바꾸고 싶으면 여기서 그룹 단위로 나눠도 됨
-#             denom = (m > 0).float().sum().clamp_min(1e-6)
-#             loss = masked.sum() / denom
-#     else:
-#         loss = loss_vec.mean()
-
-#     pred_flat = logits.argmax(dim=-1)            # (N,)
-#     pred = pred_flat.reshape(*tgt.shape) 
-
-#     return loss#, pred
 
 def ce_loss_with_clip_head(
     model_out,
@@ -477,37 +361,6 @@ def ce_loss_with_clip_head(
     return loss
 
 
-# # Main function: input = CLIP vector → output = "goal_text, action_text"
-# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
-#     if clip_embedding.dim() == 1:
-#         clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
-#     clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
-
-#     # Encode candidates
-#     goal_texts = list(BREAKFAST_GOAL.values())
-#     action_texts = list(BREAKFAST_ACTION.values())
-#     goal_feats = encode_texts(goal_texts, clip_model, device)
-#     action_feats = encode_texts(action_texts, clip_model, device)
-
-#     # Compute cosine similarity
-#     goal_sim = clip_embedding @ goal_feats.T  # (1, 10)
-#     action_sim = clip_embedding @ action_feats.T  # (1, 48)
-
-#     # Pick top-1 from each
-#     # goal_idx = goal_sim.argmax(dim=-1).item()
-#     # action_idx = action_sim.argmax(dim=-1).item()
-#     # goal_text = goal_texts[goal_idx]
-#     # action_text = action_texts[action_idx]
-#     topk=5
-#     goal_vals, goal_idxs = goal_sim.topk(topk, dim=-1)
-#     action_vals, action_idxs = action_sim.topk(topk, dim=-1)
-
-#     topk_goals = [(goal_texts[goal_idxs[0][i]], goal_vals[0][i].item()) for i in range(topk)]
-#     topk_actions = [(action_texts[action_idxs[0][i]], action_vals[0][i].item()) for i in range(topk)]
-
-#     return topk_goals, topk_actions
-
-
 def cosine_loss(x, y):
     cos_sim = F.cosine_similarity(x, y, dim=-1)
     return 1 - cos_sim
@@ -579,9 +432,7 @@ class GaussianBitDiffusion(nn.Module):
     def __init__(
         self,
         model: nn.Module,
-        goalmodel:nn.Module,
         condition_x0:False,
-        clip_model,
         *,
         num_classes=48,
         timesteps=1000,  
@@ -605,7 +456,6 @@ class GaussianBitDiffusion(nn.Module):
         self.model = model
         self.num_classes = num_classes
         self.condition_x0 = condition_x0
-        self.goalmodel = goalmodel
 
         # RECONSTRUCTION OBJ
         self.objective = objective
@@ -666,16 +516,10 @@ class GaussianBitDiffusion(nn.Module):
         self.ddim_timesteps = ddim_timesteps
         self.ddim_timestep_seq = ddim_timestep_seq
 
-        self.clip = clip_model
-        for param in self.clip.parameters():
-            param.requires_grad = False
 
         self.alpha = nn.Parameter(torch.full((1,1,512), 0.0))
-        self.action_feats = build_action_feats(DARAI_ACTION, self.clip)
         self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
         self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
-
-        self.attn = CausalAttention(d_model=512, n_heads=8, num_goal_tokens=4, share_qkv=True, causal_mask=False)
     
     def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
@@ -775,93 +619,18 @@ class GaussianBitDiffusion(nn.Module):
         condition = False
         # SAMPLE x_t from q(x_t | x_o)
         
-        ############## GUESS LABEL ###################
         x_start = x_0
-        ###############################################
-        ############## GUESS SEMANTIC ###################
-        # targets_idx_bt = x_0.argmax(dim=-1)
-        # B, T = targets_idx_bt.shape
-        # idx_flat = targets_idx_bt.reshape(-1).tolist()
-        # texts_flat = [self.id2text[i] for i in idx_flat]
-        # with torch.no_grad():
-        #     toks = clip.tokenize(texts_flat).to(gt_goal.device)              # (B*T, ctx_len)
-        #     feats = self.clip.encode_text(toks).float()              # (B*T, 512)
-        #     feats = F.normalize(feats, dim=-1)
-
-        # x_start = feats.view(B, T, -1)                               # (B,T,512)
-        # x_start = self.emb_norm(x_start)
-        ###############################################
         
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
-        # sample: goal
-        _, T, _ = gt_goal_one_hot.shape
-        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-
-        # ## minilm tokenization
-        # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
-        # with torch.no_grad():
-        #     outputs = self.text_encoder(**goal_inputs)
-        #     goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
-
-        # CLIP Tokenization
-        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
-        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
-
-        # 2. 확장 (time axis 맞추기)
-        goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
-        #goal_start = gt_goal_one_hot # (16, 1816, 10)
-        goal_noise = None
-        goal_noise = default(goal_noise, lambda: torch.randn_like(goal_start))
-        
-        goal_t = self.q_sample(x_start=goal_start, t=t, noise=goal_noise)
-
         # OBSERVATION CONDITIONING
         obs_cond = obs * mask_past
-
-        # SELF-CONDITIONING
-        #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
         
+        # SELF-CONDITIONING
+        self_cond = torch.zeros_like(x_0).to(x_0.device)
         if torch.rand((1)) < 0.5 and self.condition_x0:
             with torch.no_grad():
-                _, infer_goal = self.goalmodel(
-                    x=goal_t, 
-                    t=t, 
-                    stage_masks=mask_all,
-                    obs_cond=obs_cond, # frames
-                    self_cond=self_cond,
-                )
-                #self_cond = causal_attention_summary(infer_goal[-1].detach())
-                self_cond = self.attn(infer_goal[-1].detach(), goal_features) # (B, T, D)
-                #self_cond = infer_goal[-1].detach()
-
-        # REVERSE STEP
-        _, model_out_goal = self.goalmodel(
-            x=goal_t,
-            t=t,
-            stage_masks=mask_all,
-            obs_cond=obs_cond,
-            self_cond=self_cond,
-        )  # S x B x T x C
-
-        subgoal_seq = model_out_goal # (S x B x T x C)
-        #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
-        gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
-        # gt_goal_one_hot = repeat(gt_goal_one_hot, 'b 1 c -> s b 1 c', s=goal_logits.shape[0])
-        
-        #loss_goal = self.loss_fn(goal_logits, gt_goal_one_hot, reduction="none")
-        
-        #self_cond = torch.zeros_like(x_0).to(x_0.device)
-        #self_cond = torch.zeros_like(model_out_goal[-1]).to(model_out_goal.device)
-        #self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], model_out_goal.shape[3]), device=model_out_goal.device)
-        # SELF-CONDITIONING
-        if torch.rand((1)) < 0.5 and self.condition_x0:
-            with torch.no_grad():
-                self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
                 self_cond, _ = self.model(
                     x=x_t, 
                     t=t, 
@@ -871,17 +640,8 @@ class GaussianBitDiffusion(nn.Module):
                 )
                 self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
-        else:
-            self_cond = torch.zeros_like(x_0).to(x_0.device)
-            
-        ## concat: 
-        ## self_cond: (b,t,c)
-        ## goal_logits[-1]: (b,1,c)
-        #goal_repeat = goal_logits[-1].expand(-1, self_cond.shape[1], -1) # (b,1,c)->(b,t,c)
-        goal_repeat = subgoal_seq[-1] # (B x T x C)
-        #alpha = torch.sigmoid(self.alpha)
-        #self_cond = alpha * self_cond + (1 - alpha) * goal_repeat
-        self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
+        
+        self_cond = self_cond + gt_goal_one_hot
         # REVERSE STEP
         model_out, _ = self.model(
             x=x_t,
@@ -907,16 +667,6 @@ class GaussianBitDiffusion(nn.Module):
             mask_all = torch.stack(mask_all, dim=0)
             loss = self.loss_fn(model_out, target, reduction="none")  # S x B x T x C
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
-            #loss += ce_loss_with_clip_head(model_out, self.action_feats, target, mask_all=mask_all)
-            if gt_goal is not None:
-                ### goal diffusion: goal_logits (S x B x 1 x C)
-                ### action diffusion: model_out (S x B x T x C)
-                loss_goal = self.semantic_consistency_loss(
-                    subgoal_features=subgoal_seq,
-                    global_goal=goal_start
-                )
-                #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
-                loss += loss_goal
 
         # OUT
         return loss, rearrange(model_out, 's b t c -> s b c t')
@@ -952,7 +702,7 @@ class GaussianBitDiffusion(nn.Module):
 
     # ---------------------------------- INFERENCE (DDIM) --------------------------------------
 
-    def model_predictions(self, x, pred_x_start_prev, goal_x, goal_pred_x_start_prev, t, obs, stage_masks, gt_goal=None, gt_goal_one_hot=None, index=0):
+    def model_predictions(self, x, pred_x_start_prev, goal_x, goal_pred_x_start_prev, t, obs, stage_masks, gt_goal=None, gt_goal_one_hot=None):
         x_t = x
         B,T,C=gt_goal_one_hot.shape
         # Given x_t, reconsturct x_0
@@ -963,38 +713,20 @@ class GaussianBitDiffusion(nn.Module):
             self_cond = pred_x_start_prev
         
         ###################################################################################
-        #goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
-        goal_t = goal_x
+        goal_t = goal_x#gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
         _, T, _ = gt_goal_one_hot.shape
-        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
-        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-        # # ## minilm tokenization
-        # # goal_inputs = self.tokenizer(global_goal_texts, return_tensors="pt", padding=True, truncation=True).to(gt_goal.device)
-        # # with torch.no_grad():
-        # #     outputs = self.text_encoder(**goal_inputs)
-        # #     goal_features = outputs.last_hidden_state.mean(dim=1)  # (B, D), average pooling
-        # # goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D)
         
-        ## CLIP tokenization
-        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
-        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
-        #goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
-
-        self_cond_goal = self.attn(goal_pred_x_start_prev, goal_features)
-
-        _, infer_goal = self.goalmodel(
+        infer_goal, _ = self.goalmodel(
             x=goal_t, 
             t=t, 
             stage_masks=stage_masks,
             obs_cond=obs,
-            #self_cond=torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
+            self_cond=goal_pred_x_start_prev#torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
             #self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
-            self_cond = self_cond_goal,
+            #self_cond = self_cond
         )
 
-        #random_sample = random.randint(0,4)
-        random_sample = 0
+        random_sample = random.randint(0,4)
         #render_l2_from_subgoal_embeddings(infer_goal[random_sample][0].cpu(), t)
         #cluster_goal_embeddings(infer_goal[random_sample][0].cpu(), t)
         infer_goal = infer_goal[-1] # (25, 106, 512)
@@ -1048,10 +780,7 @@ class GaussianBitDiffusion(nn.Module):
             self_cond=self_cond,
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
-        #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
-        #plot_intentions_2d_GSA(goal_features.cpu(), infer_goal[random_sample].unsqueeze(0).cpu(), model_feature[random_sample].cpu(), png_name=f'{t}_model.png', batch_idx=0, method='pca', cmap_name='viridis', title="Demo (Random)")
-        if int(t.item()) == 0:
-            save_matrix_npy(np.asarray(model_feature.cpu()), index=index)
+        action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":
@@ -1064,7 +793,7 @@ class GaussianBitDiffusion(nn.Module):
 
         pred_goal_start = infer_goal
         pred_goal_noise = self.predict_noise_from_start(goal_t, t, pred_goal_start) * stage_masks[-1]
-            
+
         return ModelPrediction(pred_noise, pred_x_start, pred_goal_noise, pred_goal_start)
 
 
@@ -1073,23 +802,21 @@ class GaussianBitDiffusion(nn.Module):
     def p_sample_ddim(
         self,
         x,
-        pred_x_start_prev, goal_x, goal_pred_x_start_prev,
+        pred_x_start_prev,
+        goal_x, goal_pred_x_start_prev,
         t,
         t_prev,
         batch,
-        if_prev=False,
-        index=0
+        if_prev=False
     ):
         
         gt_goal_one_hot = batch['goal_one_hot']
         # MODEL PRED
         preds = self.model_predictions(x=x,
-                                       pred_x_start_prev=pred_x_start_prev,
-                                       goal_x=goal_x,
-                                       goal_pred_x_start_prev=goal_pred_x_start_prev,
+                                       pred_x_start_prev=pred_x_start_prev,goal_x=goal_x, goal_pred_x_start_prev=goal_pred_x_start_prev,
                                        t=t,
                                        obs=batch['obs'] * batch['mask_past'],
-                                       stage_masks=batch['mask_all'], gt_goal=batch['goal'],gt_goal_one_hot=gt_goal_one_hot, index=index)
+                                       stage_masks=batch['mask_all'], gt_goal=batch['goal'],gt_goal_one_hot=gt_goal_one_hot)
         pred_x_start = preds.pred_x_start
         pred_noise = preds.pred_noise
 
@@ -1147,18 +874,20 @@ class GaussianBitDiffusion(nn.Module):
         self,
         batch,
         init_rand=None,
-        n_diffusion_steps=-1,index=0
+        n_diffusion_steps=-1,
     ):
         
         # INPUT
         device = self.betas.device
         x_0_pred = torch.zeros_like(batch["x_0"]).to(batch["x_0"].device)  # only used for shape
         goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
+
     
         # INIT PREDICTION (normal distr noise)
         pred = torch.randn_like(x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
         init_noise = pred.clone()
         pred = pred.contiguous()
+
         goal_pred = torch.randn_like(goal_x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
         goal_pred = goal_pred.contiguous()
 
@@ -1179,24 +908,21 @@ class GaussianBitDiffusion(nn.Module):
                 batched_times_prev = torch.full((pred.shape[0],), 0, device=device, dtype=torch.long)
                 pred, x_0_pred, goal_pred, goal_x_0_pred = self.p_sample_ddim(
                     x=pred, 
-                    pred_x_start_prev=x_0_pred,
-                    goal_x=goal_pred,
-                    goal_pred_x_start_prev=goal_x_0_pred,
+                    pred_x_start_prev=x_0_pred,goal_x=goal_pred, goal_pred_x_start_prev=goal_x_0_pred,
                     t=batched_times, 
                     t_prev=batched_times_prev, 
                     batch=batch,
-                    if_prev=True,index=index
+                    if_prev=True,
+
                 )
             else:
                 batched_times_prev = torch.full((pred.shape[0],), self.ddim_timestep_seq[t-1], device=device, dtype=torch.long)
                 pred, x_0_pred, goal_pred, goal_x_0_pred = self.p_sample_ddim(
                     x=pred,
-                    pred_x_start_prev=x_0_pred, 
-                    goal_x=goal_pred,
-                    goal_pred_x_start_prev=goal_x_0_pred,
+                    pred_x_start_prev=x_0_pred, goal_x=goal_pred, goal_pred_x_start_prev=goal_x_0_pred,
                     t=batched_times,
                     t_prev=batched_times_prev,
-                    batch=batch,index=index
+                    batch=batch
                 )
         return pred, init_noise
 
@@ -1213,7 +939,7 @@ class GaussianBitDiffusion(nn.Module):
         n_samples=2,
         return_noise=False,
         n_diffusion_steps=-1,
-        goal=None,gt_goal_one_hot=None,index=0
+        goal=None,gt_goal_one_hot=None,
     ):
         
         # Initialize observation
@@ -1236,7 +962,7 @@ class GaussianBitDiffusion(nn.Module):
                 "goal_one_hot":gt_goal_one_hot,
             },
             init_rand=None,
-            n_diffusion_steps=n_diffusion_steps,index=index
+            n_diffusion_steps=n_diffusion_steps
         )
           
         # Return
