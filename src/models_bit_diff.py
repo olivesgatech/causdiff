@@ -457,6 +457,7 @@ class DiffMultiStageModel(nn.Module):
     def forward(self, x, t, stage_masks):
         out, out_features = self.stage1(x, t, stage_masks[0])
         outputs = out.unsqueeze(0)
+        output_features = out_features.unsqueeze(0)
      
         for sn, s in enumerate(self.stages):
             if self.use_features:
@@ -464,8 +465,8 @@ class DiffMultiStageModel(nn.Module):
             else:
                 out, out_features = s(F.softmax(out, dim=1) * stage_masks[sn], t, stage_masks[sn])
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
-
-        return outputs, out_features
+            output_features = torch.cat((output_features, out_features.unsqueeze(0)), dim=0)
+        return outputs, output_features
 
 
 

@@ -18,8 +18,9 @@ import os, re, glob
 from subgoal_text_matching import render_l2_from_subgoal_embeddings
 from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spectrum
 import random
+from visualize import save_matrix_npy
 
-ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
+ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
 # BREAKFAST_GOAL = {
 #     0: "a person is making scrambled egg",
@@ -702,7 +703,7 @@ class GaussianBitDiffusion(nn.Module):
 
     # ---------------------------------- INFERENCE (DDIM) --------------------------------------
 
-    def model_predictions(self, x, pred_x_start_prev, goal_x, goal_pred_x_start_prev, t, obs, stage_masks, gt_goal=None, gt_goal_one_hot=None):
+    def model_predictions(self, x, pred_x_start_prev, t, obs, stage_masks, gt_goal=None, gt_goal_one_hot=None,index=0):
         x_t = x
         B,T,C=gt_goal_one_hot.shape
         # Given x_t, reconsturct x_0
@@ -712,62 +713,7 @@ class GaussianBitDiffusion(nn.Module):
         if self.condition_x0:
             self_cond = pred_x_start_prev
         
-        ###################################################################################
-        goal_t = goal_x#gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
-        _, T, _ = gt_goal_one_hot.shape
-        
-        infer_goal, _ = self.goalmodel(
-            x=goal_t, 
-            t=t, 
-            stage_masks=stage_masks,
-            obs_cond=obs,
-            self_cond=goal_pred_x_start_prev#torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
-            #self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
-            #self_cond = self_cond
-        )
-
-        random_sample = random.randint(0,4)
-        #render_l2_from_subgoal_embeddings(infer_goal[random_sample][0].cpu(), t)
-        #cluster_goal_embeddings(infer_goal[random_sample][0].cpu(), t)
-        infer_goal = infer_goal[-1] # (25, 106, 512)
-        # infer_goal: (T, 512)
-        # for i in range(25):
-        #     sim_matrix = cosine_similarity(infer_goal[i].cpu().numpy())
-        #     plt.figure(figsize=(6, 5))
-        #     img = plt.imshow(sim_matrix, cmap='viridis', aspect='auto')
-        #     plt.axis('off')            # ✅ 모든 축과 라벨 제거
-        #     plt.title("")              # ✅ 제목 제거
-        #     plt.xticks([])             # ✅ x축 눈금 제거
-        #     plt.yticks([])             # ✅ y축 눈금 제거
-
-        #     plt.tight_layout()
-        #     plt.savefig(f'subgoal_{i}.png', dpi=150, bbox_inches='tight', pad_inches=0)
-        #     plt.close()
-
-        # decoded_texts = []
-        # # for i in range(25):
-        # #     print(goal_features.shape, goal_features[0].shape)
-        # text = decode_clip_embedding_to_text(goal_features[0])
-        # print(f"///////////////// goal: {text} ///////////////////////")
-
-        # # 텍스트 디코딩 + 저장
-        # for i in range(infer_goal.shape[1]):
-        #     clip_vec = infer_goal[0][i]
-            
-        #     text = decode_clip_embedding_to_text(clip_vec)
-        #     decoded_texts.append(text)
-        #     print(f"[{i}] {text}")
-
-        # # 결과를 파일에 저장
-        # output_path = "decoded_subgoals.txt"
-        # with open(output_path, "w", encoding="utf-8") as f:
-        #     for line in decoded_texts:
-        #         f.write(str(line) + "\n")
-
-        # print(f"\n✅ completed: {output_path}")
-
-        
-        self_cond = torch.cat([self_cond, infer_goal], dim=2)
+        self_cond = self_cond + gt_goal_one_hot
         
         ##################################################################################
         
@@ -780,7 +726,9 @@ class GaussianBitDiffusion(nn.Module):
             self_cond=self_cond,
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
-        action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
+        #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
+        if int(t.item()) == 0:
+            save_matrix_npy(np.asarray(model_feature.cpu()), index=index)
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":
@@ -791,10 +739,7 @@ class GaussianBitDiffusion(nn.Module):
             pred_x_start = model_output
             pred_noise = self.predict_noise_from_start(x, t, pred_x_start) * stage_masks[-1]
 
-        pred_goal_start = infer_goal
-        pred_goal_noise = self.predict_noise_from_start(goal_t, t, pred_goal_start) * stage_masks[-1]
-
-        return ModelPrediction(pred_noise, pred_x_start, pred_goal_noise, pred_goal_start)
+        return ModelPrediction(pred_noise, pred_x_start)
 
 
 
@@ -803,25 +748,21 @@ class GaussianBitDiffusion(nn.Module):
         self,
         x,
         pred_x_start_prev,
-        goal_x, goal_pred_x_start_prev,
         t,
         t_prev,
         batch,
-        if_prev=False
+        if_prev=False,index=0
     ):
         
         gt_goal_one_hot = batch['goal_one_hot']
         # MODEL PRED
         preds = self.model_predictions(x=x,
-                                       pred_x_start_prev=pred_x_start_prev,goal_x=goal_x, goal_pred_x_start_prev=goal_pred_x_start_prev,
+                                       pred_x_start_prev=pred_x_start_prev,
                                        t=t,
                                        obs=batch['obs'] * batch['mask_past'],
-                                       stage_masks=batch['mask_all'], gt_goal=batch['goal'],gt_goal_one_hot=gt_goal_one_hot)
+                                       stage_masks=batch['mask_all'], gt_goal=batch['goal'],gt_goal_one_hot=gt_goal_one_hot,index=index)
         pred_x_start = preds.pred_x_start
         pred_noise = preds.pred_noise
-
-        pred_goal_start = preds.pred_goal_start
-        pred_goal_noise = preds.pred_goal_noise
 
         # PRED X_0
         alpha_bar = extract(self.alphas_cumprod, t, x.shape)
@@ -844,28 +785,7 @@ class GaussianBitDiffusion(nn.Module):
 
         nonzero_mask = (1 - (t == 0).float()).reshape(x.shape[0], *((1,) * (len(x.shape) - 1)))
 
-
-        # PRED goal
-        alpha_bar_goal = extract(self.alphas_cumprod, t, gt_goal_one_hot.shape)
-        if if_prev:
-            alpha_bar_prev_goal = extract(self.alphas_cumprod_prev, t_prev, gt_goal_one_hot.shape)
-        else:
-            alpha_bar_prev_goal = extract(self.alphas_cumprod, t_prev, gt_goal_one_hot.shape)
-        sigma_goal = (
-                self.eta
-                * torch.sqrt((1 - alpha_bar_prev_goal) / (1 - alpha_bar_goal))
-                * torch.sqrt(1 - alpha_bar_goal / alpha_bar_prev_goal)
-        )
-
-        # Compute mean and var
-        noise_goal = torch.randn_like(gt_goal_one_hot) 
-        mean_pred_goal = (
-                pred_goal_start * torch.sqrt(alpha_bar_prev_goal)
-                + torch.sqrt(1 - alpha_bar_prev_goal - sigma_goal ** 2) * pred_goal_noise
-        )
-
-        nonzero_mask_goal = (1 - (t == 0).float()).reshape(gt_goal_one_hot.shape[0], *((1,) * (len(gt_goal_one_hot.shape) - 1)))
-        return mean_pred + nonzero_mask * sigma * noise, pred_x_start, mean_pred_goal+nonzero_mask_goal*sigma_goal*noise_goal, pred_goal_start
+        return mean_pred + nonzero_mask * sigma * noise, pred_x_start
 
    
 
@@ -874,22 +794,18 @@ class GaussianBitDiffusion(nn.Module):
         self,
         batch,
         init_rand=None,
-        n_diffusion_steps=-1,
+        n_diffusion_steps=-1,index=0
     ):
         
         # INPUT
         device = self.betas.device
         x_0_pred = torch.zeros_like(batch["x_0"]).to(batch["x_0"].device)  # only used for shape
-        goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
 
     
         # INIT PREDICTION (normal distr noise)
         pred = torch.randn_like(x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
         init_noise = pred.clone()
         pred = pred.contiguous()
-
-        goal_pred = torch.randn_like(goal_x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
-        goal_pred = goal_pred.contiguous()
 
         # SAMPLE
         assert n_diffusion_steps == len(self.ddim_timestep_seq) # 50
@@ -906,23 +822,23 @@ class GaussianBitDiffusion(nn.Module):
             batched_times = torch.full((pred.shape[0],), self.ddim_timestep_seq[t], device=pred.device, dtype=torch.long)
             if t == 0:
                 batched_times_prev = torch.full((pred.shape[0],), 0, device=device, dtype=torch.long)
-                pred, x_0_pred, goal_pred, goal_x_0_pred = self.p_sample_ddim(
+                pred, x_0_pred = self.p_sample_ddim(
                     x=pred, 
-                    pred_x_start_prev=x_0_pred,goal_x=goal_pred, goal_pred_x_start_prev=goal_x_0_pred,
+                    pred_x_start_prev=x_0_pred,
                     t=batched_times, 
                     t_prev=batched_times_prev, 
                     batch=batch,
-                    if_prev=True,
+                    if_prev=True,index=index
 
                 )
             else:
                 batched_times_prev = torch.full((pred.shape[0],), self.ddim_timestep_seq[t-1], device=device, dtype=torch.long)
-                pred, x_0_pred, goal_pred, goal_x_0_pred = self.p_sample_ddim(
+                pred, x_0_pred = self.p_sample_ddim(
                     x=pred,
-                    pred_x_start_prev=x_0_pred, goal_x=goal_pred, goal_pred_x_start_prev=goal_x_0_pred,
+                    pred_x_start_prev=x_0_pred,
                     t=batched_times,
                     t_prev=batched_times_prev,
-                    batch=batch
+                    batch=batch,index=index
                 )
         return pred, init_noise
 
@@ -939,7 +855,7 @@ class GaussianBitDiffusion(nn.Module):
         n_samples=2,
         return_noise=False,
         n_diffusion_steps=-1,
-        goal=None,gt_goal_one_hot=None,
+        goal=None,gt_goal_one_hot=None,index=0
     ):
         
         # Initialize observation
@@ -962,7 +878,7 @@ class GaussianBitDiffusion(nn.Module):
                 "goal_one_hot":gt_goal_one_hot,
             },
             init_rand=None,
-            n_diffusion_steps=n_diffusion_steps
+            n_diffusion_steps=n_diffusion_steps,index=index
         )
           
         # Return

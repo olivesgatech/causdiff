@@ -415,6 +415,8 @@ class TrainerTCN:
                 classes_one_hot_tensor = sample_batched[3] 
 
                 mask_past_tensor = sample_batched[5]
+                goal_tensor = sample_batched[9]
+                goals_one_hot_tensor = sample_batched[10].to(device)
                 
                 # DEVICE
                 features = features.to(device)
@@ -452,7 +454,8 @@ class TrainerTCN:
                             mask_past = rearrange(mask_past_tensor, 'b c t -> b t c'),
                             masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
                             n_samples=args.num_samples,
-                            n_diffusion_steps=args.num_infr_diff_timesteps)
+                            goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
+                            n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
                     tcn_predictions = tcn_predictions.contiguous()
                     loss = 0.
                     ce_loss = 0.
