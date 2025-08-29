@@ -629,8 +629,10 @@ class GaussianBitDiffusion(nn.Module):
         obs_cond = obs * mask_past
         
         # SELF-CONDITIONING
-        self_cond = torch.zeros_like(x_0).to(x_0.device)
+        #self_cond = torch.zeros_like(x_0).to(x_0.device)
+        
         if torch.rand((1)) < 0.5 and self.condition_x0:
+            self_cond = torch.zeros((x_0.shape[0], x_0.shape[1], x_0.shape[2] + gt_goal_one_hot.shape[2]), device=x_0.device)
             with torch.no_grad():
                 self_cond, _ = self.model(
                     x=x_t, 
@@ -641,8 +643,11 @@ class GaussianBitDiffusion(nn.Module):
                 )
                 self_cond = self_cond[-1]
                 self_cond = self_cond.detach()
+        else:
+            self_cond = torch.zeros_like(x_0).to(x_0.device)
         
-        self_cond = self_cond + gt_goal_one_hot
+        #self_cond = self_cond + gt_goal_one_hot
+        self_cond = torch.cat([self_cond, gt_goal_one_hot], dim=2)
         # REVERSE STEP
         model_out, _ = self.model(
             x=x_t,
@@ -727,8 +732,8 @@ class GaussianBitDiffusion(nn.Module):
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
         #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
-        if int(t.item()) == 0:
-            save_matrix_npy(np.asarray(model_feature.cpu()), index=index)
+        # if int(t.item()) == 0:
+        #     save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":

@@ -369,7 +369,7 @@ class BitDiffPredictorTCN(nn.Module):
             args.num_stages,
             args.num_layers,
             args.model_dim,
-            args.input_dim + 2 * args.num_classes,
+            args.input_dim + 2 * args.num_classes + int(args.num_highlevel_classes),
             args.num_classes,
             args.channel_dropout_prob,
             args.use_features,
@@ -419,6 +419,8 @@ class DiffMultiStageModel(nn.Module):
                 use_features=False,
                 causal=False):
         super(DiffMultiStageModel, self).__init__()
+
+        print(dim)
 
         self.use_features = use_features
         stage_in_dim = num_classes

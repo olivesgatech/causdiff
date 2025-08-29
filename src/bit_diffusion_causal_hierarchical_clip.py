@@ -1051,7 +1051,7 @@ class GaussianBitDiffusion(nn.Module):
         #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         #plot_intentions_2d_GSA(goal_features.cpu(), infer_goal[random_sample].unsqueeze(0).cpu(), model_feature[random_sample].cpu(), png_name=f'{t}_model.png', batch_idx=0, method='pca', cmap_name='viridis', title="Demo (Random)")
         if int(t.item()) == 0:
-            save_matrix_npy(np.asarray(model_feature.cpu()), index=index)
+            save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":

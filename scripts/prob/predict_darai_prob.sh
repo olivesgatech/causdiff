@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-OPTS="--model_dir=/home/seulgi/work/causdiff/model/darai/diff \
-      --results_dir=/home/seulgi/work/causdiff/model/darai/diff \
+OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
+      --results_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
       --mapping_file=./datasets/darai/mapping_l3_changed.txt \
       --mapping_coarse_file=./datasets/darai/mapping_l1_changed.txt \
       --vid_list_file_test=./datasets/darai/splits/test_split.txt \

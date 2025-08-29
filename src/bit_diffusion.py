@@ -492,6 +492,7 @@ from einops import repeat, rearrange
 from torch import nn
 from tqdm import tqdm
 from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spectrum
+from visualize import save_matrix_npy
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -785,7 +786,7 @@ class GaussianBitDiffusion(nn.Module):
 
     # ---------------------------------- INFERENCE (DDIM) --------------------------------------
 
-    def model_predictions(self, x, pred_x_start_prev, t, obs, stage_masks):
+    def model_predictions(self, x, pred_x_start_prev, t, obs, stage_masks,index=0):
         x_t = x
 
         # Given x_t, reconsturct x_0
@@ -802,8 +803,10 @@ class GaussianBitDiffusion(nn.Module):
             obs_cond=obs,
             self_cond=self_cond
         )
+        if int(t.item()) == 0:
+            save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
-        action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
+        #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         
         if self.objective == "pred_noise":
             pred_noise = model_output 
@@ -825,7 +828,7 @@ class GaussianBitDiffusion(nn.Module):
         t,
         t_prev,
         batch,
-        if_prev=False
+        if_prev=False,index=0
     ):
         
 
@@ -834,7 +837,7 @@ class GaussianBitDiffusion(nn.Module):
                                        pred_x_start_prev=pred_x_start_prev,
                                        t=t,
                                        obs=batch['obs'] * batch['mask_past'],
-                                       stage_masks=batch['mask_all'])
+                                       stage_masks=batch['mask_all'],index=index)
         pred_x_start = preds.pred_x_start
         pred_noise = preds.pred_noise
 
@@ -867,7 +870,7 @@ class GaussianBitDiffusion(nn.Module):
         self,
         batch,
         init_rand=None,
-        n_diffusion_steps=-1,
+        n_diffusion_steps=-1,index=0
     ):
         
         # INPUT
@@ -902,7 +905,7 @@ class GaussianBitDiffusion(nn.Module):
                     t=batched_times, 
                     t_prev=batched_times_prev, 
                     batch=batch,
-                    if_prev=True
+                    if_prev=True,index=index
                 )
             else:
                 batched_times_prev = torch.full((pred.shape[0],), self.ddim_timestep_seq[t-1], device=device, dtype=torch.long)
@@ -911,7 +914,7 @@ class GaussianBitDiffusion(nn.Module):
                     pred_x_start_prev=x_0_pred, 
                     t=batched_times,
                     t_prev=batched_times_prev,
-                    batch=batch
+                    batch=batch,index=index
                 )
         return pred, init_noise
 
@@ -927,7 +930,7 @@ class GaussianBitDiffusion(nn.Module):
         *,
         n_samples=2,
         return_noise=False,
-        n_diffusion_steps=-1,
+        n_diffusion_steps=-1,index=0
     ):
         
         # Initialize observation
@@ -945,7 +948,7 @@ class GaussianBitDiffusion(nn.Module):
                 "mask_all": masks_stages
             },
             init_rand=None,
-            n_diffusion_steps=n_diffusion_steps
+            n_diffusion_steps=n_diffusion_steps,index=index
         )
           
         # Return
