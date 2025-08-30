@@ -28,8 +28,8 @@ OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
       --ant_stages=5 \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
-      --num_highlevel_classes=48 \
-      --date=202508281716 \
+      --num_highlevel_classes=10 \
+      --date=202508291646 \
       --sample_rate=3"
 
 python ./src/main.py $OPTS

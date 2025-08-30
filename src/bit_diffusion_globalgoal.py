@@ -718,8 +718,8 @@ class GaussianBitDiffusion(nn.Module):
         if self.condition_x0:
             self_cond = pred_x_start_prev
         
-        self_cond = self_cond + gt_goal_one_hot
-        
+        #self_cond = self_cond + gt_goal_one_hot
+        self_cond = torch.cat([self_cond, gt_goal_one_hot], dim=2)
         ##################################################################################
         
         # PRED
@@ -732,8 +732,8 @@ class GaussianBitDiffusion(nn.Module):
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
         #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
-        # if int(t.item()) == 0:
-        #     save_matrix_npy(np.asarray(model_output.cpu()), index=index)
+        if int(t.item()) == 0:
+            save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":
