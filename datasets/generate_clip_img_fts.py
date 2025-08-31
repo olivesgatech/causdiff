@@ -12,7 +12,7 @@ import open_clip
 # Choose CLIP model + weights
 CLIP_MODEL_NAME = "ViT-B-32"      # e.g., "ViT-B-32", "ViT-L-14"
 CLIP_PRETRAINED = "openai"        # e.g., "openai", "laion2b_s32b_b79k"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda:1" if torch.cuda.is_available() else "cpu"
 
 # Create model & preprocess
 clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(

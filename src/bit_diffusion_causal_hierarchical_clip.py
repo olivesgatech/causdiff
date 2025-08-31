@@ -20,6 +20,7 @@ from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spec
 from visualize import plot_intentions_2d_GSA, plot_intentions_2d_GS, save_matrix_npy
 import random
 from causal_attention import CausalAttention
+from lora import LLMConditioner
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
@@ -219,7 +220,7 @@ def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
 #     context = torch.stack(context, dim=1)  # (B, T, D)
 #     return context
 
-def encode_texts(texts, clip_model, device='cuda'):
+def encode_texts(texts, clip_model, device='cuda:1'):
     tokens = clip.tokenize(texts).to(device)
     with torch.no_grad():
         text_features = clip_model.encode_text(tokens)  # (N, 512)
@@ -228,7 +229,7 @@ def encode_texts(texts, clip_model, device='cuda'):
 
 def decode_clip_embedding_to_text(
     clip_embedding,
-    device='cuda',
+    device='cuda:1',
     features_dir="/home/hice1/skim3513/scratch/causdiff/datasets/darai/features_description_text",
     out_txt_path="/home/hice1/skim3513/scratch/causdiff/datasets/darai/out.txt", topk=5
 ):
@@ -296,7 +297,7 @@ def decode_clip_embedding_to_text(
 
     return results
 
-def pick_darai_action_by_similarity(model_out, clip_model, device="cuda"):
+def pick_darai_action_by_similarity(model_out, clip_model, device="cuda:1"):
     """
     model_out: torch.Tensor or np.ndarray, shape (512,) or (1,512) or (N,512)
     return: dict (top-1) 또는 list of dicts (top-k)
@@ -325,7 +326,7 @@ def pick_darai_action_by_similarity(model_out, clip_model, device="cuda"):
     idx = int(top_idxs[r].item())
     return action_ids[idx]
 
-def build_action_feats(DARAI_ACTION, clip_model, device="cuda"):
+def build_action_feats(DARAI_ACTION, clip_model, device="cuda:1"):
     import clip
     texts = [DARAI_ACTION[i] for i in sorted(DARAI_ACTION.keys())]
     with torch.no_grad():
@@ -478,7 +479,7 @@ def ce_loss_with_clip_head(
 
 
 # # Main function: input = CLIP vector → output = "goal_text, action_text"
-# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda'):
+# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda:1'):
 #     if clip_embedding.dim() == 1:
 #         clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
 #     clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
@@ -594,7 +595,7 @@ class GaussianBitDiffusion(nn.Module):
         
         super().__init__()
         # self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda')
+        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda:1')
         # self.text_encoder.eval()  # inference only
         
         print(f'Num classes : {num_classes}')
@@ -670,12 +671,44 @@ class GaussianBitDiffusion(nn.Module):
         for param in self.clip.parameters():
             param.requires_grad = False
 
-        self.alpha = nn.Parameter(torch.full((1,1,512), 0.0))
-        self.action_feats = build_action_feats(DARAI_ACTION, self.clip)
-        self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
-        self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
+        #self.alpha = nn.Parameter(torch.full((1,1,512), 0.0))
+        #self.action_feats = build_action_feats(DARAI_ACTION, self.clip)
+        #self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
+        #self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
 
         self.attn = CausalAttention(d_model=512, n_heads=8, num_goal_tokens=4, share_qkv=True, causal_mask=False)
+
+        self.use_lm = True
+        self.lm_update_prob = 0.2          # 매 step 중 20%만 LLM 손실 계산 (메모리/속도 절약)
+        self.lambda_lm = 0.3               # LLM CE 가중
+        self.lmc = LLMConditioner(  # 모델은 환경에 맞게
+            lm_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+            prefix_len=16, r=4, alpha=16, dropout=0.05, fourbit=True
+        )
+        self.phrase_bank = [
+            "Bake pancake",
+            "Cleaning Countertops",
+            "Cleaning Floor",
+            "Get ingredients",
+            "Having a meal",
+            "Mix ingredients",
+            "Prep ingredients",
+            "Prepare Kitchen appliance",
+            "Scroll on tablet",
+            "Setting a table",
+            "Take out Kitchen_and_cooking_tools",
+            "Take_out_smartphone",
+            "Throw_out_leftovers",
+            "Using_Smartphone",
+            "Using_Tablet",
+            "Washing_and_Drying_dishes_with_hands"
+        ]
+        with torch.no_grad():
+            toks = clip.tokenize(self.phrase_bank).to(next(self.clip.parameters()).device)
+            feats = self.clip.encode_text(toks).float()
+        self.phrase_feats = F.normalize(feats, dim=-1)   # (P,512)
+        self.align_temp = 0.07
+        self.lambda_align = 0.3 
     
     def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
@@ -685,7 +718,7 @@ class GaussianBitDiffusion(nn.Module):
         S, B, T, D = subgoal_features.shape
         
         # Get global goal features (only once)
-        #with torch.amp.autocast('cuda'):
+        #with torch.amp.autocast('cuda:1'):
             #global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
             #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
             #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
@@ -836,7 +869,7 @@ class GaussianBitDiffusion(nn.Module):
                     self_cond=self_cond,
                 )
                 #self_cond = causal_attention_summary(infer_goal[-1].detach())
-                self_cond = self.attn(infer_goal[-1].detach(), goal_features) # (B, T, D)
+                self_cond = self.attn(infer_goal[-1], goal_features) # (B, T, D)
                 #self_cond = infer_goal[-1].detach()
 
         # REVERSE STEP
@@ -847,6 +880,31 @@ class GaussianBitDiffusion(nn.Module):
             obs_cond=obs_cond,
             self_cond=self_cond,
         )  # S x B x T x C
+
+        S, B, T, _ = model_out_goal.shape
+
+        ## Step 1). CLIP - model_out_goal alignment
+        g = F.normalize(model_out_goal, dim=-1)          # (B, T, 512)
+        P = self.phrase_feats                        # (P, 512)
+        sims = torch.einsum('sbtd,pd->sbtp', g, P) / self.align_temp # 시점별 코사인 유사도: (B, T, P)
+        with torch.no_grad():
+            pos_idx = sims.argmax(dim=-1)  # (B, T) # 각 (b, t)에서 top-1 문구를 pseudo target으로
+
+        ## Step 2). LLM fine-tuning
+        vm = torch.ones(B, T, dtype=torch.bool, device=model_out_goal.device)
+        vm_bt = torch.ones(sims.size(1), sims.size(2), dtype=torch.bool, device=sims.device)
+        vm_sbt = vm_bt.unsqueeze(0).expand(sims.size(0), -1, -1)
+        sbt_idx = vm_sbt.nonzero(as_tuple=False)
+        if sbt_idx.numel() > 0:
+            K = min(4, sbt_idx.size(0))           # 예: 4개만 선택
+            perm = torch.randperm(sbt_idx.size(0), device=model_out_goal.device)[:K]
+            pick = sbt_idx[perm]                  # (K,3)
+            s_sel = pick[:,0]; b_sel = pick[:,1]; t_sel = pick[:,2]
+            sub_vecs = model_out_goal[s_sel, b_sel, t_sel]        # (K,512)
+            sims_kp = torch.einsum('kd,pd->kp', F.normalize(sub_vecs, dim=-1), P)  # (K,P) # 시점별 pseudo-caption (phrase bank 최근접)
+            top = sims_kp.argmax(dim=-1)                                           # (K,)
+            pseudo_caps = [self.phrase_bank[i.item()] for i in top]
+            lm_loss = self.lmc.lm_loss_from_subgoals(sub_vecs, pseudo_caps)        # scalar
 
         subgoal_seq = model_out_goal # (S x B x T x C)
         #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
@@ -917,6 +975,14 @@ class GaussianBitDiffusion(nn.Module):
                 )
                 #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
                 loss += loss_goal
+            align_loss = F.cross_entropy(
+                sims.reshape(-1, sims.size(-1)),        # (B*T, P)
+                pos_idx.reshape(-1),                    # (B*T,)
+                reduction='none'
+            ).mean()
+            loss += self.lambda_align * align_loss
+
+            loss += self.lambda_lm * lm_loss
 
         # OUT
         return loss, rearrange(model_out, 's b t c -> s b c t')

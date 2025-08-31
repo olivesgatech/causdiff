@@ -66,7 +66,7 @@ def edit_score(recognized, ground_truth, norm=True, bg_class=["background"]):
     return levenstein(P, Y, norm)  
 
 
-def eval_file(gt_content, recog_content, past_len, classes):
+def eval_file(gt_content, recog_content, past_len, classes, f):
     last_frame = min(len(recog_content), len(gt_content))
     recognized = recog_content[past_len:last_frame]
     ground_truth = gt_content[past_len:last_frame]
@@ -81,8 +81,10 @@ def eval_file(gt_content, recog_content, past_len, classes):
     for i in range(len(ground_truth)):
         if ground_truth[i] == recognized[i]:
             n_T[ground_truth[i]] += 1
+            f.write(str(ground_truth[i]) + "," + str(recognized[i]) + "\n")
         else:
             n_F[ground_truth[i]] += 1
+            f.write(str(ground_truth[i]) + "," + str(recognized[i]) + "\n")
 
     return n_errors, len(recognized), n_T, n_F, edit_score(recognized, ground_truth)
 

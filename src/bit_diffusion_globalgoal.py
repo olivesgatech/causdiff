@@ -201,7 +201,7 @@ def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
 
 def decode_clip_embedding_to_text(
     clip_embedding,
-    device='cuda',
+    device='cuda:1',
     features_dir="/home/hice1/skim3513/scratch/causdiff/datasets/darai/features_description_text",
     out_txt_path="/home/hice1/skim3513/scratch/causdiff/datasets/darai/out.txt", topk=5
 ):
@@ -446,7 +446,7 @@ class GaussianBitDiffusion(nn.Module):
         
         super().__init__()
         # self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda')
+        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda:1')
         # self.text_encoder.eval()  # inference only
         
         print(f'Num classes : {num_classes}')
@@ -530,7 +530,7 @@ class GaussianBitDiffusion(nn.Module):
         S, B, T, D = subgoal_features.shape
         
         # Get global goal features (only once)
-        #with torch.amp.autocast('cuda'):
+        #with torch.amp.autocast('cuda:1'):
             #global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
             #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
             #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
@@ -732,8 +732,8 @@ class GaussianBitDiffusion(nn.Module):
         )
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
         #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
-        if int(t.item()) == 0:
-            save_matrix_npy(np.asarray(model_output.cpu()), index=index)
+        # if int(t.item()) == 0:
+        #     save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":

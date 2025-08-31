@@ -22,7 +22,7 @@ from evaluation import *
 
 # CLIP
 import clip
-clip_model, _ = clip.load("ViT-B/32", device='cuda')
+clip_model, _ = clip.load("ViT-B/32", device='cuda:1')
 # clip_model = None
 
 class TrainerTCN:
@@ -392,149 +392,151 @@ class TrainerTCN:
             # ITERATE
             print("length: ", len(dataloader))
             for itr, sample_batched in enumerate(dataloader):
-                # print(itr, "##################")
-                # if itr % 100 != 0:
-                #     continue
-                # DATA
-                features = sample_batched[0] 
+                with open(f'/mnt/data-tmp/seulgi/causdiff/diff_results/darai/proposed/result_{itr}.txt', "w") as f:
+                    f.write("GroundTruth,Recognized\n")  # header
+                    # print(itr, "##################")
+                    # if itr % 100 != 0:
+                    #     continue
+                    # DATA
+                    features = sample_batched[0] 
 
-                classes_tensor = sample_batched[1]  
-                classes_all_tensor = sample_batched[2]
-                classes_one_hot_tensor = sample_batched[3] 
+                    classes_tensor = sample_batched[1]  
+                    classes_all_tensor = sample_batched[2]
+                    classes_one_hot_tensor = sample_batched[3] 
 
-                mask_past_tensor = sample_batched[5]
-                
-                goal_tensor = sample_batched[9]
-                goals_one_hot_tensor = sample_batched[10].to(device)
-                
-                # DEVICE
-                features = features.to(device)
-                classes_tensor = classes_tensor.to(device)
-                mask_past_tensor = mask_past_tensor.to(device)
-                goal_tensor = goal_tensor.to(device)
-
-                # MASK
-                masks = []
-                for _ in range(self.obs_stages):
-                    masks.append(mask_past_tensor)
-                for _ in range(self.ant_stages):
-                    masks.append(torch.ones(1, 1, features.size(-1), device=device))                
-
-
-                ''' PREDICTIONS '''
-                # DETERMINISTIC
-                if not self.prob:
-                    tcn_predictions, _ = self.model(features, masks)
-
-
-                    ''' LOSSES'''
-                    for st, p in enumerate(tcn_predictions):
-                        ce = self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), classes_tensor.view(-1))  # BT x C
-                        ce = torch.sum(ce * masks[st].transpose(2, 1).view(-1)) / torch.sum(masks[st])
+                    mask_past_tensor = sample_batched[5]
                     
-                        loss += ce.item()
-                        ce_loss += ce.item()
-                
-                # PROB
-                else:
-                    classes_one_hot_tensor = classes_one_hot_tensor.to(device)
-                    tcn_predictions = self.ema_diffusion.ema_model.predict(
-                            x_0 = rearrange(classes_one_hot_tensor, 'b c t -> b t c'),
-                            obs = rearrange(features, 'b c t -> b t c'),
-                            mask_past = rearrange(mask_past_tensor, 'b c t -> b t c'),
-                            masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
-                            goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
-                            n_samples=args.num_samples,
-                            n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
-                    tcn_predictions = tcn_predictions.contiguous()
-                    loss = 0.
-                    ce_loss = 0.
+                    goal_tensor = sample_batched[9]
+                    goals_one_hot_tensor = sample_batched[10].to(device)
+                    
+                    # DEVICE
+                    features = features.to(device)
+                    classes_tensor = classes_tensor.to(device)
+                    mask_past_tensor = mask_past_tensor.to(device)
+                    goal_tensor = goal_tensor.to(device)
+
+                    # MASK
+                    masks = []
+                    for _ in range(self.obs_stages):
+                        masks.append(mask_past_tensor)
+                    for _ in range(self.ant_stages):
+                        masks.append(torch.ones(1, 1, features.size(-1), device=device))                
 
 
-                ''' ACCURACIES '''
-                # META INFO
-                init_vid_len = sample_batched[-4]
-                meta_dict = sample_batched[-3]
-                file_names = meta_dict['file_names']    
-
-                # FINAL PRED AND GT
-                gt_content = classes_all_tensor[0].numpy()
-                assert len(gt_content) == init_vid_len
+                    ''' PREDICTIONS '''
+                    # DETERMINISTIC
+                    if not self.prob:
+                        tcn_predictions, _ = self.model(features, masks)
 
 
-                # ACCUM PREDICTIONS
-                if not self.prob:
-                    _, predicted = torch.max(tcn_predictions[-1].data, 1)
-                    predicted = predicted.squeeze()
-                    tcn_fin_prediction = []
-                    for i in range(len(predicted)):
-                        tcn_fin_prediction = np.concatenate((tcn_fin_prediction, [predicted[i].item()] * sample_rate))
+                        ''' LOSSES'''
+                        for st, p in enumerate(tcn_predictions):
+                            ce = self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), classes_tensor.view(-1))  # BT x C
+                            ce = torch.sum(ce * masks[st].transpose(2, 1).view(-1)) / torch.sum(masks[st])
+                        
+                            loss += ce.item()
+                            ce_loss += ce.item()
+                    
+                    # PROB
+                    else:
+                        classes_one_hot_tensor = classes_one_hot_tensor.to(device)
+                        tcn_predictions = self.ema_diffusion.ema_model.predict(
+                                x_0 = rearrange(classes_one_hot_tensor, 'b c t -> b t c'),
+                                obs = rearrange(features, 'b c t -> b t c'),
+                                mask_past = rearrange(mask_past_tensor, 'b c t -> b t c'),
+                                masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
+                                goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
+                                n_samples=args.num_samples,
+                                n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
+                        tcn_predictions = tcn_predictions.contiguous()
+                        loss = 0.
+                        ce_loss = 0.
 
-                else:
-                    # iterate through samples
-                    tcn_fin_predictions = []
-                    for s in range(tcn_predictions.shape[0]):
-                        tcn_fin_prediction = []
-                        _, predicted = torch.max(tcn_predictions[s].data, 1)
+
+                    ''' ACCURACIES '''
+                    # META INFO
+                    init_vid_len = sample_batched[-4]
+                    meta_dict = sample_batched[-3]
+                    file_names = meta_dict['file_names']    
+
+                    # FINAL PRED AND GT
+                    gt_content = classes_all_tensor[0].numpy()
+                    assert len(gt_content) == init_vid_len
+
+
+                    # ACCUM PREDICTIONS
+                    if not self.prob:
+                        _, predicted = torch.max(tcn_predictions[-1].data, 1)
                         predicted = predicted.squeeze()
+                        tcn_fin_prediction = []
                         for i in range(len(predicted)):
                             tcn_fin_prediction = np.concatenate((tcn_fin_prediction, [predicted[i].item()] * sample_rate))
 
-                        # save / accumulate
-                        result_dict[file_names[0]].append(tcn_fin_prediction)  
-                        tcn_fin_predictions.append(tcn_fin_prediction)
-
-                    result_dict[f'gt_{file_names[0]}'] = classes_all_tensor[0].numpy()
-                    tcn_fin_predictions = np.stack(tcn_fin_predictions, axis=0)
-                    
-
-                # COMPUTE EVAL METRICS
-                past_len = int(obs_perc * init_vid_len)  # observation length
-                for i in range(len(eval_percentages)):
-                    eval_perc = eval_percentages[i]
-                    eval_len = int((eval_perc + obs_perc) * init_vid_len)
-
-                    if not self.prob:
-                        errors_frames, num_frames, classes_n_T, classes_n_F, _ = eval_file(
-                            gt_content, 
-                            tcn_fin_prediction[:eval_len],
-                            past_len,
-                            actions_dict
-                        )
-                        n_T_classes_all_files[i] += classes_n_T
-                        n_F_classes_all_files[i] += classes_n_F
-                        num_frames_all_files[i] += num_frames
-                        errors_frames_all_files[i] += errors_frames
-
-
                     else:
+                        # iterate through samples
+                        tcn_fin_predictions = []
+                        for s in range(tcn_predictions.shape[0]):
+                            tcn_fin_prediction = []
+                            _, predicted = torch.max(tcn_predictions[s].data, 1)
+                            predicted = predicted.squeeze()
+                            for i in range(len(predicted)):
+                                tcn_fin_prediction = np.concatenate((tcn_fin_prediction, [predicted[i].item()] * sample_rate))
 
-                        # Top-1 MoC
-                        max_n_T_classes = np.zeros(self.num_classes)
-                        max_n_F_classes = np.zeros(self.num_classes) 
-                        max_moc = -1.
+                            # save / accumulate
+                            result_dict[file_names[0]].append(tcn_fin_prediction)  
+                            tcn_fin_predictions.append(tcn_fin_prediction)
 
-                        for s in range(tcn_fin_predictions.shape[0]):
+                        result_dict[f'gt_{file_names[0]}'] = classes_all_tensor[0].numpy()
+                        tcn_fin_predictions = np.stack(tcn_fin_predictions, axis=0)
+                        
+
+                    # COMPUTE EVAL METRICS
+                    past_len = int(obs_perc * init_vid_len)  # observation length
+                    for i in range(len(eval_percentages)):
+                        eval_perc = eval_percentages[i]
+                        eval_len = int((eval_perc + obs_perc) * init_vid_len)
+
+                        if not self.prob:
                             errors_frames, num_frames, classes_n_T, classes_n_F, _ = eval_file(
-                                gt_content,
-                                tcn_fin_predictions[s][:eval_len],
+                                gt_content, 
+                                tcn_fin_prediction[:eval_len],
                                 past_len,
                                 actions_dict
                             )
                             n_T_classes_all_files[i] += classes_n_T
                             n_F_classes_all_files[i] += classes_n_F
+                            num_frames_all_files[i] += num_frames
+                            errors_frames_all_files[i] += errors_frames
+
+
+                        else:
+
+                            # Top-1 MoC
+                            max_n_T_classes = np.zeros(self.num_classes)
+                            max_n_F_classes = np.zeros(self.num_classes) 
+                            max_moc = -1.
+
+                            for s in range(tcn_fin_predictions.shape[0]):
+                                errors_frames, num_frames, classes_n_T, classes_n_F, _ = eval_file(
+                                    gt_content,
+                                    tcn_fin_predictions[s][:eval_len],
+                                    past_len,
+                                    actions_dict,f
+                                )
+                                n_T_classes_all_files[i] += classes_n_T
+                                n_F_classes_all_files[i] += classes_n_F
+                                
                             
-                        
-                            # choose the max one
-                            all_pred = classes_n_T + classes_n_F
-                            moc = np.mean(classes_n_T[all_pred != 0] / (classes_n_T[all_pred != 0] + classes_n_F[all_pred != 0]))
-                            if moc > max_moc:
-                                max_moc = moc   
-                                max_n_T_classes = classes_n_T        
-                                max_n_F_classes = classes_n_F
-                               
-                        max_n_T_classes_all_files[i] += max_n_T_classes
-                        max_n_F_classes_all_files[i] += max_n_F_classes
+                                # choose the max one
+                                all_pred = classes_n_T + classes_n_F
+                                moc = np.mean(classes_n_T[all_pred != 0] / (classes_n_T[all_pred != 0] + classes_n_F[all_pred != 0]))
+                                if moc > max_moc:
+                                    max_moc = moc   
+                                    max_n_T_classes = classes_n_T        
+                                    max_n_F_classes = classes_n_F
+                                
+                            max_n_T_classes_all_files[i] += max_n_T_classes
+                            max_n_F_classes_all_files[i] += max_n_F_classes
 
 
 
