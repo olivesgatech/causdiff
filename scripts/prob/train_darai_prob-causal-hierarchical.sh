@@ -18,11 +18,11 @@ OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
       --diff_obj pred_x0 \
       --action=train \
       --ds=bf \
-      --bz=2 \
+      --bz=1 \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
-      --num_epochs=100 \
-      --epoch=100 \
+      --num_epochs=105 \
+      --epoch=85 \
       --num_stages=5 \
       --obs_stages=0 \
       --ant_stages=5 \

@@ -85,7 +85,7 @@ class TrainerTCN:
         # MODEL
         if self.prob:
             self.diffusion = self.diffusion.to(device)
-            if args.epoch != 100:
+            if 1:#args.epoch != 100:
                 self.diffusion.model.load_state_dict(torch.load(save_dir + '/epoch-' + str(args.epoch) + ".model"), strict=False)
             else:
                 args.epoch = -1

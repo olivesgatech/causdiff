@@ -696,12 +696,12 @@ class GaussianBitDiffusion(nn.Module):
             "Prepare Kitchen appliance",
             "Scroll on tablet",
             "Setting a table",
-            "Take out Kitchen_and_cooking_tools",
-            "Take_out_smartphone",
-            "Throw_out_leftovers",
-            "Using_Smartphone",
-            "Using_Tablet",
-            "Washing_and_Drying_dishes_with_hands"
+            "Take out Kitchen and cooking tools",
+            "Take out smartphone",
+            "Throw out leftovers",
+            "Using Smartphone",
+            "Using Tablet",
+            "Washing and Drying dishes with hands"
         ]
         with torch.no_grad():
             toks = clip.tokenize(self.phrase_bank).to(next(self.clip.parameters()).device)
@@ -906,6 +906,7 @@ class GaussianBitDiffusion(nn.Module):
             pseudo_caps = [self.phrase_bank[i.item()] for i in top]
             lm_loss = self.lmc.lm_loss_from_subgoals(sub_vecs, pseudo_caps)        # scalar
 
+        self.lmc.save_subgoal_texts(s_sbt=model_out_goal[0].unsqueeze(0),out_dir="./src/debug_subgoals",idx=0)
         subgoal_seq = model_out_goal # (S x B x T x C)
         #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
         gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
@@ -1058,7 +1059,8 @@ class GaussianBitDiffusion(nn.Module):
             #self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
             self_cond = self_cond_goal,
         )
-
+        # if int(t.item()) == 0:
+        #     self.lmc.save_subgoal_texts(infer_goal, "./src/text_proposed_goal/", index+8)
         #random_sample = random.randint(0,4)
         random_sample = 0
         #render_l2_from_subgoal_embeddings(infer_goal[random_sample][0].cpu(), t)
@@ -1116,8 +1118,7 @@ class GaussianBitDiffusion(nn.Module):
         #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
         #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         #plot_intentions_2d_GSA(goal_features.cpu(), infer_goal[random_sample].unsqueeze(0).cpu(), model_feature[random_sample].cpu(), png_name=f'{t}_model.png', batch_idx=0, method='pca', cmap_name='viridis', title="Demo (Random)")
-        if int(t.item()) == 0:
-            save_matrix_npy(np.asarray(model_output.cpu()), index=index)
+        
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":

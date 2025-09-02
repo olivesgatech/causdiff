@@ -29,7 +29,7 @@ OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
       --num_highlevel_classes=512 \
-      --date=202508251921 \
+      --date=202508311331 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS

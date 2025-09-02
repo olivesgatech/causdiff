@@ -25,7 +25,7 @@ from matplotlib.cm import get_cmap
 from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D
 
-def save_matrix_npy(matrix: np.ndarray, index=0, filename='./src/output_goal_48/'):
+def save_matrix_npy(matrix: np.ndarray, index=0, filename='./src/output_proposed_goal/'):
     """
     Save a matrix of shape (S, 1, T, D) into .npy format.
 
