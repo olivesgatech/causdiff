@@ -793,6 +793,12 @@ class GaussianBitDiffusion(nn.Module):
         self_cond = torch.zeros_like(pred_x_start_prev).to(pred_x_start_prev.device)
         if self.condition_x0:
             self_cond = pred_x_start_prev
+
+        # from fvcore.nn import FlopCountAnalysis
+        # model = self.model
+        # inputs = (x_t, t, stage_masks, obs, self_cond)
+        # flops = FlopCountAnalysis(model, inputs).total()
+        # print(f"Total FLOPs: {flops / 1e9:.2f} GFLOPs")
           
           
         # PRED
@@ -940,6 +946,51 @@ class GaussianBitDiffusion(nn.Module):
         masks_stages = [repeat(mask.to(torch.bool), "b t c -> (s b) t c", s=n_samples) for mask in masks_stages]
 
         # Sample from the diffusion model
+        import time
+
+        warmup = 10
+        num_iterations = 100
+        print("warmup")
+        print(x_0.shape)
+        for _ in range(warmup):
+            _,_ = self.p_sample_loop_with_input(
+                batch={
+                    "x_0": x_0,  # only used for shape
+                    "obs": obs,
+                    "mask_past": mask_past.to(torch.bool),
+                    "mask_all": masks_stages
+                },
+                init_rand=None,
+                n_diffusion_steps=n_diffusion_steps
+            )
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+        print("warmup ends")
+        times = []
+        for _ in range(num_iterations):
+            start_time = time.perf_counter()
+            
+            _,_ = self.p_sample_loop_with_input(
+                batch={
+                    "x_0": x_0,  # only used for shape
+                    "obs": obs,
+                    "mask_past": mask_past.to(torch.bool),
+                    "mask_all": masks_stages
+                },
+                init_rand=None,
+                n_diffusion_steps=n_diffusion_steps
+            )
+            
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            end_time = time.perf_counter()
+            times.append(end_time - start_time)
+        
+        avg_time = np.mean(times)
+        std_time = np.std(times)
+        print(f"Average: {avg_time*1000:.2f}ms, Std: {std_time*1000:.2f}ms")
+                
         x_out, init_noise = self.p_sample_loop_with_input(
             batch={
                 "x_0": x_0,  # only used for shape

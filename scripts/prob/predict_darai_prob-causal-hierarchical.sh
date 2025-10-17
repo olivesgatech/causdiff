@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
-      --results_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
+OPTS="--model_dir=/home/hice1/skim3513/scratch/causdiff/model/darai/diff \
+      --results_dir=/home/hice1/skim3513/scratch/causdiff/model/darai/diff \
       --mapping_file=./datasets/darai/mapping_l3_changed.txt \
       --mapping_coarse_file=./datasets/darai/mapping_l1_changed.txt \
       --vid_list_file_test=./datasets/darai/splits/test_split.txt \
       --vid_list_file=./datasets/darai/splits/train_split.txt \
-      --gt_path=./datasets/darai/groundTruth_nov11/ \
-      --features_path=./datasets/darai/features_temp \
+      --gt_path=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/groundTruth_img \
+      --features_path=/home/hice1/skim3513/scratch/darai-anticipation/FUTR_proposed/datasets/darai/features_img \
       --split=4 \
       --conditioned_x0 \
       --use_features \
@@ -29,7 +29,7 @@ OPTS="--model_dir=/mnt/data-tmp/seulgi/causdiff/model/darai/diff \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
       --num_highlevel_classes=512 \
-      --date=202508311331 \
+      --date=202508122306 \
       --sample_rate=3"
 
 python ./src/main-causal_hierarchical.py $OPTS
