@@ -6,13 +6,14 @@ import pprint
 import numpy as np
 import torch
 
-from trainers_causal_hierarchical import TrainerTCN
+from trainers_causal_hierarchical_onlylora_25b import TrainerTCN
+#from trainers_causal_hierarchical import TrainerTCN
 #from batch_gen import BatchGeneratorTCN
 from batch_gen_darai import BatchGeneratorTCN
 
-from batch_gen_assembly import BatchGeneratorAssembly101TCN
+#from batch_gen_assembly import BatchGeneratorAssembly101TCN
 
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 
 
 seed = 1538574472
@@ -65,7 +66,7 @@ parser.add_argument('--channel_dropout_prob', default=0.4, type=float)
 
 
 # diffusion
-parser.add_argument('--num_samples', default=1, type=int)
+parser.add_argument('--num_samples', default=5, type=int)
 parser.add_argument('--num_infr_diff_timesteps', default=50, type=int)
 parser.add_argument('--num_diff_timesteps', default=1000, type=int)
 parser.add_argument('--conditioned_x0', action='store_true')
@@ -127,8 +128,8 @@ print(f'Dir : {exp_name}')
 
 
 # Tensorboard
-writer = SummaryWriter(log_dir=os.path.join(args.model_dir, 'logs_' + exp_name))
-writer.add_text(f"{exp_name}", pprint.pformat(args).replace("\n", "\n\n"))
+# writer = SummaryWriter(log_dir=os.path.join(args.model_dir, 'logs_' + exp_name))
+# writer.add_text(f"{exp_name}", pprint.pformat(args).replace("\n", "\n\n"))
 
 
 # Fix seed
@@ -138,7 +139,7 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 arguments += "  ,  fixed_seed"
-writer.add_text("args", arguments)
+#writer.add_text("args", arguments)
 
 
 # Init save/write directories
@@ -226,7 +227,7 @@ if args.action == "train":
                   val_batch_gens=val_batch_gens,
                   device=device,
                   num_workers=args.num_workers,
-                  writer=writer,
+                  #writer=writer,
                   results_dir=results_dir,
                   actions_dict=actions_dict,
                   goals_dict=goals_dict)
@@ -243,4 +244,4 @@ else:
                               goals_dict=goals_dict,
                               sample_rate=args.sample_rate,
                               eval_mode=False)
-writer.close()
+#writer.close()

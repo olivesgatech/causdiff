@@ -13,7 +13,8 @@ from collections import defaultdict
 from models import *
 from models_bit_diff_causal_hierarchical import BitDiffPredictorTCN
 #from bit_diffusion_causal_hierarchical_globalgoal import GaussianBitDiffusion
-from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
+from bit_diffusion_causal_hierarchical_qwen_projector import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_clip import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_minilm import GaussianBitDiffusion
 from ema import *
@@ -67,8 +68,6 @@ class TrainerTCN:
                 objective=args.diff_obj,
                 loss_type=args.diff_loss_type,
             )
-
-
 
     # ------------------------------------------------------------------- TRAINING ---------------------------------------------------------------
     def train(self,

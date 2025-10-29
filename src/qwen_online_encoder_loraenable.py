@@ -144,21 +144,19 @@ class QwenVLOnlineEncoder(nn.Module):
             model_id, trust_remote_code=True, cache_dir=cache_dir
         )
 
-        load_kwargs = dict(trust_remote_code=True, cache_dir=cache_dir)
-        if device == "cuda":
-            load_kwargs.update(dict(device_map="auto", torch_dtype=torch_dtype))
-        else:
-            load_kwargs.update(dict(torch_dtype=torch.float32))
+        load_kwargs = dict(trust_remote_code=True, cache_dir=cache_dir, torch_dtype=torch.bfloat16)
+        
         if attn_impl is not None:
             load_kwargs.update(dict(attn_implementation=attn_impl))
 
         # Load model
-        try:
-            self.model = AutoModelForVision2Seq.from_pretrained(model_id, **load_kwargs)
-        except Exception:
-            assert Qwen2VLForConditionalGeneration is not None, \
-                "transformers>=4.43가 필요합니다 (Qwen2VLForConditionalGeneration)."
-            self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, **load_kwargs)
+        self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, **load_kwargs)
+        # try:
+        #     self.model = AutoModelForVision2Seq.from_pretrained(model_id, trust_remote_code=True, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2" **load_kwargs)
+        # except Exception:
+        #     assert Qwen2VLForConditionalGeneration is not None, \
+        #         "transformers>=4.43가 필요합니다 (Qwen2VLForConditionalGeneration)."
+        #     self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, **load_kwargs)
 
         # Optional: gradient checkpointing
         if enable_grad_ckpt and hasattr(self.model, "gradient_checkpointing_enable"):
@@ -173,22 +171,23 @@ class QwenVLOnlineEncoder(nn.Module):
                 lora_dropout=lora_dropout,
                 target_modules=list(target_modules),
                 bias="none",
-                task_type="CAUSAL_LM"
+                task_type="CAUSAL_LM",
+                use_dora=True,
             )
             self.model = get_peft_model(self.model, peft_cfg)
 
             # 1) 전체 동결
             for _, p in self.model.named_parameters():
                 p.requires_grad = False
-            # K = 6  # 마지막 6블록만
-            # layers = getattr(self.model, "model", None)
-            # layers = getattr(layers, "layers", None) or []
-            # for li, blk in enumerate(layers):
-            #     enable = (li >= len(layers) - K)
-            #     for name, module in blk.named_modules():
-            #         if "lora_" in name:
-            #             for p in module.parameters():
-            #                 p.requires_grad = enable
+            K = 6  # 마지막 6블록만
+            layers = getattr(self.model, "model", None)
+            layers = getattr(layers, "layers", None) or []
+            for li, blk in enumerate(layers):
+                enable = (li >= len(layers) - K)
+                for name, module in blk.named_modules():
+                    if "lora_" in name:
+                        for p in module.parameters():
+                            p.requires_grad = enable
 
         # Freeze vision tower / projector if requested
         if not freeze_vision_tower:
@@ -204,73 +203,6 @@ class QwenVLOnlineEncoder(nn.Module):
                 if mm is not None:
                     for p in mm.parameters():
                         p.requires_grad = True
-
-    @torch.no_grad()
-    def _infer_hidden_size(self) -> int:
-        # 한 장으로 미리 한 번 돌려서 hidden dim 추정 (초기화 시 1회)
-        img = Image.new("RGB", (self.max_side, self.max_side), (0, 0, 0))
-        prompt = self._build_prompt("dummy", 0, 1)
-        inputs = self.processor(text=prompt, images=[img], return_tensors="pt")
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        backbone = _get_qwen_backbone(self.model)
-        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-            out = backbone(**inputs, output_hidden_states=False, use_cache=False, return_dict=True)
-        return int(out.last_hidden_state.shape[-1])
-
-    def _build_prompt(self, global_intention, frame_idx, total_len, prev_subintents=None, recent_k=3):
-        #recent = prev_subintents[-recent_k:] if prev_subintents else []
-
-        system_txt = (
-            # "You are a precise vision-language annotator for capturing fine-grained human intentions.\n"
-            # "Respect temporal logic using the frame index and visible evidence only. \n"
-            # "A fine-grained sub-intention is an atomic, observable, and immediate human intention (1–3s) with one main verb, one primary object/target.\n"
-            # "Avoid repeating recent intention as possible."
-            # "You must not generate something that is not in the image."
-            "Output a short, diverse, and novel fine-grained intention (≤8 words) as possible. Use only visible evidence."
-        )
-
-        user_txt = (
-            # f"This video is for achieving one global intention: {global_intention}.\n"
-            # f"Frame index: {frame_idx} out of {total_len}. Recent actions' intentions: {recent}.\n"
-            # f"Based on what you can see in the image, provide diverse and novel intention as possible.\n"
-            # "Since you need to find immediate fine-grained intention, it is better if you observe where human moves towards to and where human is looking at."
-            # "Focus on the actually visible hand–object contact, actually visible tool usage, and small, precise manipulations or state changes.\n"
-            # "Think about action_verb, actually visible object, target_location, and what is the intention about that action_verb, and with that, deduct the fine grained intention."
-            # "Return the deducted fine-grained intention. (word max <= 8 words)"
-            f"This video is for achieving one global intention: {global_intention}. Current frame index is {frame_idx}/{total_len}. Respect temporal logic."
-        )
-
-        return [
-            {"role": "system", "content": [{"type": "text", "text": system_txt}]},
-            {"role": "user", "content": [
-                {"type": "text", "text": user_txt},
-                {"type": "image", "image": "<image-placeholder>"}
-            ]}
-        ]
-
-
-    def _decode_phrase(self, msgs_img, img, max_new_tokens=10):
-        # msgs_img: apply_chat_template용으로 이미지 바인딩까지 끝난 메시지
-        prompt = self.processor.apply_chat_template(msgs_img, add_generation_prompt=True)
-        inputs = self.processor(text=prompt, images=[img], return_tensors="pt")
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():  # phrase만 얻고 그래프는 만들지 않음 (LoRA 학습은 latent 경로에서만)
-            gen_ids = self.model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                num_beams=1,
-                use_cache=False,
-                eos_token_id=self.processor.tokenizer.eos_token_id,
-            )
-        out = self.processor.batch_decode(
-            gen_ids[:, inputs["input_ids"].shape[1]:],
-            skip_special_tokens=True
-        )[0]
-        phrase = out.strip().split("\n")[0].strip()
-        # 아주 가볍게 후처리
-        phrase = phrase.rstrip(".")
-        return phrase[:64]  # 과도한 길이 방지
 
     def forward(
         self,
@@ -318,14 +250,13 @@ class QwenVLOnlineEncoder(nn.Module):
                     img = img.resize((int(w * scale), int(h * scale)))
                 flat_imgs.append(img)
                 flat_prompts.append(
-                    f"Global intention: {gi_list[b]}. Frame {t}/{total_list[b]}. "
-                    "Output a short fine-grained intention (<=8 words) based only on visible evidence."
+                    f"Global intention: {gi_list[b]}. Frame {t}/{total_list[b]}. Do not repeat global intention. Respect temporal logic."
                 )
 
         # 미니배치로 인코딩
         #backbone = _get_qwen_backbone(self.model)
         pooled_list = []
-        ctx = torch.cuda.amp.autocast(dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
+        ctx = torch.amp.autocast('cuda', dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
         with ctx:
             for i0 in range(0, len(flat_imgs), chunk_size):
                 i1 = min(len(flat_imgs), i0 + chunk_size)
@@ -337,7 +268,7 @@ class QwenVLOnlineEncoder(nn.Module):
 
                     # Qwen2-VL 권장 포맷: 메시지에 이미지 placeholder 포함
                     msgs = [
-                        {"role": "system", "content": [{"type": "text", "text": "Output a short fine-grained intention (<=8 words) based only on visible evidence."}]},
+                        {"role": "system", "content": [{"type": "text", "text": "Output a fine-grained intention based only on visible evidence."}]},
                         {"role": "user", "content": [
                             {"type": "image", "image": "<image-placeholder>"},
                             {"type": "text", "text": txt}
@@ -353,7 +284,7 @@ class QwenVLOnlineEncoder(nn.Module):
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
-                    max_length=128,
+                    max_length=512,
                 )
                 for k in inputs:
                     inputs[k] = inputs[k].to(device, non_blocking=True)
@@ -366,6 +297,7 @@ class QwenVLOnlineEncoder(nn.Module):
                     return_dict=True
                 )
                 last = outputs.hidden_states[-1]                  # (mb, S, D)
+                #last = outputs.last_hidden_state
                 if "attention_mask" in inputs:
                     mask = inputs["attention_mask"].float().unsqueeze(-1)
                     pooled = (last * mask).sum(dim=1) / mask.sum(dim=1).clamp_min(1.0)
@@ -387,3 +319,147 @@ class QwenVLOnlineEncoder(nn.Module):
         vlm_latents = pad_sequence(chunks, batch_first=True, padding_value=0.0)
 
         return vlm_latents    # (B, T_max, D)
+
+    # QwenVLOnlineEncoder 내부에 추가
+    @torch.no_grad()
+    def generate_phrases(
+        self,
+        images,                         # List[List[PIL.Image]]  (B, variable T_b)
+        global_intention="Making pancake",
+        frame_indices=None,
+        total_len=None,
+        # 디코딩/품질 옵션
+        max_new_tokens=120,              # <= 8 words 보장용 여유 토큰
+        do_sample=False,                # 재현성 우선이면 False, 다양성 원하면 True + top_p/temperature
+        top_p=0.9,
+        temperature=0.7,
+        num_beams=1,                    # 안정성 원하면 2~3
+        repetition_penalty=1.1,        # 경미한 반복 억제
+        chunk_size=16,
+        max_length_tokens=128,          # 입력 토큰 상한
+        enforce_8_words=True,           # 후처리 강제
+        remove_punct=True,              # 후처리 구두점 제거
+        recent_k=0,                     # 필요시 최근 생성문장 정보 프롬프트 주입
+        use_autocast=True
+    ):
+        """
+        학습 때 쓰던 '이미지 placeholder + 동일 시스템/유저 메시지' 프롬프트로
+        파인튜닝된 Qwen2-VL(+LoRA)에서 프레임별 짧은 의도 문장을 생성한다.
+        반환: List[List[str]]  (B, T_b)
+        """
+        # 0) eval 모드 + LoRA 활성
+        self.model.eval()
+
+        device = self.device
+        B = len(images)
+        assert B > 0 and isinstance(images[0], (list, tuple))
+
+        # broadcast
+        if isinstance(global_intention, list):
+            assert len(global_intention) == B
+            gi_list = global_intention
+        else:
+            gi_list = [global_intention] * B
+
+        if total_len is None:
+            total_list = [len(seq) for seq in images]
+        else:
+            assert len(total_len) == B
+            total_list = total_len
+
+        lengths = [len(seq) for seq in images]
+        assert all(l > 0 for l in lengths)
+
+        # 1) 플랫 전개 + 동일 프롬프트 구성 (학습 포맷 유지)
+        flat_imgs, flat_msgs = [], []
+        for b in range(B):
+            T_b = lengths[b]
+            for t in range(T_b):
+                img = images[b][t]
+                if max(img.size) > self.max_side:
+                    w, h = img.size
+                    scale = self.max_side / float(max(w, h))
+                    img = img.resize((int(w * scale), int(h * scale)))
+
+                
+                # 시스템/유저 프롬프트: 학습 때와 동일한 메시지 스타일
+                msgs = [
+                    {"role": "system", "content": [
+                        {"type": "text", "text": "Output a fine-grained intention (>=20 words) based only on visible evidence."}
+                    ]},
+                    {"role": "user", "content": [
+                        {"type": "image", "image": "<image-placeholder>"},
+                        {"type": "text", "text":
+                            f"Global intention: {gi_list[b]}. Frame {t}/{total_list[b]}. "
+                        }
+                    ]}
+                ]
+                flat_imgs.append(img)
+                flat_msgs.append(self.processor.apply_chat_template(
+                    msgs, add_generation_prompt=True
+                ))
+
+        # 2) 청크 단위 디코딩
+        outs_flat = []
+        ctx = torch.amp.autocast('cuda', dtype=torch.bfloat16) if use_autocast else contextlib.nullcontext()
+        with ctx:
+            for i0 in range(0, len(flat_imgs), chunk_size):
+                i1 = min(len(flat_imgs), i0 + chunk_size)
+                inputs = self.processor(
+                    text=flat_msgs[i0:i1],
+                    images=flat_imgs[i0:i1],
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=False,
+                )
+                inputs = {k: v.to(device, non_blocking=True) for k, v in inputs.items()}
+
+                gen_ids = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=do_sample,
+                    top_p=top_p,
+                    temperature=temperature,
+                    num_beams=num_beams,
+                    repetition_penalty=repetition_penalty,
+                    no_repeat_ngram_size=3,
+                    use_cache=True,
+                    eos_token_id=self.processor.tokenizer.eos_token_id,
+                    pad_token_id=self.processor.tokenizer.eos_token_id,
+                )
+                dec_list = self.processor.batch_decode(
+                    gen_ids[:, inputs["input_ids"].shape[1]:],
+                    skip_special_tokens=True
+                )
+                for s in dec_list:
+                    # 1) 모든 줄을 공백으로 이어붙이기
+                    #    - strip해서 빈 줄 제거, ' '로 join
+                    parts = [line.strip() for line in s.replace("\r", "\n").split("\n") if line.strip()]
+                    joined = " ".join(parts) if parts else ""
+
+                    # 2) 공백 정규화 (여러 공백 -> 하나)
+                    joined = " ".join(joined.split())
+
+                    # 3) 아주 가벼운 후처리만 (원하면 최소화)
+                    if remove_punct and joined.endswith("."):
+                        joined = joined[:-1]
+
+                    outs_flat.append(joined)
+
+        # 3) (B, T_b)로 재조립 + 간단 smoothing/anti-repetition
+        outs_bt, idx = [], 0
+        for b in range(B):
+            T_b = lengths[b]
+            seq = outs_flat[idx:idx+T_b]
+            idx += T_b
+
+            # 간단 anti-repetition: 바로 이전과 동일하면 마지막 토큰 제거
+            for t in range(1, T_b):
+                if seq[t] == seq[t-1]:
+                    ws = seq[t].split()
+                    if len(ws) > 2:
+                        seq[t] = " ".join(ws[:-1])
+            outs_bt.append(seq)
+
+        return outs_bt
+

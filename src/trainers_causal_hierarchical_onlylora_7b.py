@@ -13,7 +13,9 @@ from collections import defaultdict
 from models import *
 from models_bit_diff_causal_hierarchical import BitDiffPredictorTCN
 #from bit_diffusion_causal_hierarchical_globalgoal import GaussianBitDiffusion
-from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_onlylora import GaussianBitDiffusion
+from bit_diffusion_causal_hierarchical_qwen_onlylora_7b import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_clip import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_minilm import GaussianBitDiffusion
 from ema import *
@@ -78,7 +80,6 @@ class TrainerTCN:
               val_batch_gens,
               device,
               num_workers,
-              writer,
               results_dir,
               actions_dict,
               goals_dict):
@@ -169,14 +170,14 @@ class TrainerTCN:
             # Logging
             print("[epoch %d]: epoch loss = %f,  acc = %f" % (epoch, epoch_loss / len(dataloader), float(correct) / total))
 
-            # acc
-            writer.add_scalar("training_accuracies/MoF_past", float(correct_past) / total_past, global_step=epoch)
-            writer.add_scalar("training_accuracies/MoF_future", float(correct_future) / total_future, global_step=epoch)
-            writer.add_scalar("training_accuracies/MoF_all", float(correct) / total, global_step=epoch)
+            # # acc
+            # writer.add_scalar("training_accuracies/MoF_past", float(correct_past) / total_past, global_step=epoch)
+            # writer.add_scalar("training_accuracies/MoF_future", float(correct_future) / total_future, global_step=epoch)
+            # writer.add_scalar("training_accuracies/MoF_all", float(correct) / total, global_step=epoch)
             
-            # loss
-            writer.add_scalar("training_losses/total_loss",  float(epoch_loss) / len(dataloader), global_step=epoch)
-            writer.add_scalar("training_losses/ce_loss", float(epoch_ce_loss) / len(dataloader), global_step=epoch)
+            # # loss
+            # writer.add_scalar("training_losses/total_loss",  float(epoch_loss) / len(dataloader), global_step=epoch)
+            # writer.add_scalar("training_losses/ce_loss", float(epoch_ce_loss) / len(dataloader), global_step=epoch)
         
  
 
@@ -200,14 +201,14 @@ class TrainerTCN:
                                                         args.sample_rate,
                                                         eval_mode=True)
 
-                        # Logging
-                        writer.add_scalar("testing_loss/ce_loss/obs_" + str(obs_perc), returned_metrics[0][-1], global_step=epoch)
-                        writer.add_scalar("testing_loss/total_loss/obs_" + str(obs_perc), returned_metrics[0][-2], global_step=epoch)
+                        # # Logging
+                        # writer.add_scalar("testing_loss/ce_loss/obs_" + str(obs_perc), returned_metrics[0][-1], global_step=epoch)
+                        # writer.add_scalar("testing_loss/total_loss/obs_" + str(obs_perc), returned_metrics[0][-2], global_step=epoch)
                         
-                        for res in returned_metrics:
-                            writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoF_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[1], global_step=epoch)
-                            writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[2], global_step=epoch)
-                            writer.add_scalar("testing_metrics_" + str(obs_perc) + "/Max_MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[3], global_step=epoch)
+                        # for res in returned_metrics:
+                        #     writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoF_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[1], global_step=epoch)
+                        #     writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[2], global_step=epoch)
+                        #     writer.add_scalar("testing_metrics_" + str(obs_perc) + "/Max_MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[3], global_step=epoch)
 
                     self.model.train()
 
@@ -357,8 +358,12 @@ class TrainerTCN:
             if self.prob:
                 max_n_T_classes_all_files = np.zeros((len(eval_percentages), len(actions_dict)))
                 max_n_F_classes_all_files = np.zeros((len(eval_percentages), len(actions_dict)))
-          
 
+            num_samples = 5
+            per_sample_T = np.zeros((num_samples, len(eval_percentages), len(actions_dict)), dtype=np.float64)
+            per_sample_F = np.zeros((num_samples, len(eval_percentages), len(actions_dict)), dtype=np.float64)
+            top1_T = np.zeros((len(eval_percentages), len(actions_dict)), dtype=np.float64)
+            top1_F = np.zeros((len(eval_percentages), len(actions_dict)), dtype=np.float64)
             # EVAL
             loss, ce_loss = 0, 0          
             dataloader = DataLoader(
@@ -395,7 +400,7 @@ class TrainerTCN:
             # ITERATE
             print("length: ", len(dataloader))
             for itr, sample_batched in enumerate(dataloader):
-                with open(f'/mnt/data-tmp/seulgi/causdiff/diff_results/darai/proposed/result_{itr}.txt', "w") as f:
+                with open(f'/home/hice1/skim3513/scratch/causdiff/diff_results/darai/proposed/result_{itr}.txt', "w") as f:
                     f.write("GroundTruth,Recognized\n")  # header
                     # print(itr, "##################")
                     # if itr % 100 != 0:
@@ -417,6 +422,8 @@ class TrainerTCN:
                     classes_tensor = classes_tensor.to(device)
                     mask_past_tensor = mask_past_tensor.to(device)
                     goal_tensor = goal_tensor.to(device)
+
+                    video_file_name = sample_batched[11]
 
                     # MASK
                     masks = []
@@ -450,8 +457,9 @@ class TrainerTCN:
                                 masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
                                 goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
                                 n_samples=args.num_samples,
-                                n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
+                                n_diffusion_steps=args.num_infr_diff_timesteps, index=itr, video_name=video_file_name,)
                         tcn_predictions = tcn_predictions.contiguous()
+                        
                         loss = 0.
                         ce_loss = 0.
 
@@ -496,6 +504,7 @@ class TrainerTCN:
                     # COMPUTE EVAL METRICS
                     past_len = int(obs_perc * init_vid_len)  # observation length
                     for i in range(len(eval_percentages)):
+                        
                         eval_perc = eval_percentages[i]
                         eval_len = int((eval_perc + obs_perc) * init_vid_len)
 
@@ -510,8 +519,6 @@ class TrainerTCN:
                             n_F_classes_all_files[i] += classes_n_F
                             num_frames_all_files[i] += num_frames
                             errors_frames_all_files[i] += errors_frames
-
-
                         else:
 
                             # Top-1 MoC
@@ -528,11 +535,15 @@ class TrainerTCN:
                                 )
                                 n_T_classes_all_files[i] += classes_n_T
                                 n_F_classes_all_files[i] += classes_n_F
+
+                                per_sample_T[s, i] += classes_n_T
+                                per_sample_F[s, i] += classes_n_F
                                 
                             
                                 # choose the max one
                                 all_pred = classes_n_T + classes_n_F
                                 moc = np.mean(classes_n_T[all_pred != 0] / (classes_n_T[all_pred != 0] + classes_n_F[all_pred != 0]))
+                                
                                 if moc > max_moc:
                                     max_moc = moc   
                                     max_n_T_classes = classes_n_T        
@@ -564,6 +575,7 @@ class TrainerTCN:
                 # MoC (Mean over Classes metric)
                 for i in range(len(actions_dict)):
                     if n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i] != 0:
+                        
                         acc += (float(n_T_classes_all_files[j, i]) / (n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i]))
                         n += 1
                     
@@ -571,7 +583,20 @@ class TrainerTCN:
                         max_acc += (float(max_n_T_classes_all_files[j, i]) / (max_n_T_classes_all_files[j, i] + max_n_F_classes_all_files[j, i]))
                         max_n += 1  
 
-   
+                ####### Per sample moc ####################
+                per_sample_moc = np.zeros(num_samples, dtype=np.float64)
+                for s in range(num_samples):
+                    per_sample_accuracy = 0.0; file_num = 0
+                    for i_cls in range(len(actions_dict)):
+                        denom = per_sample_T[s, j, i_cls] + per_sample_F[s, j, i_cls]
+                        if denom != 0:
+                            per_sample_accuracy += float(per_sample_T[s, j, i_cls]) / denom
+                            file_num += 1
+                    per_sample_moc[s] = (per_sample_accuracy / file_num) if file_num > 0 else 0.0
+
+                for s in range(num_samples):
+                    print(f"sample: {s}, MoC@{int(100*eval_percentages[j])}% = {per_sample_moc[s]:.4f}")
+
 
                 #  NORMALIZE
                 mof = 100 * (1.0 - float(errors_frames_all_files[j]) / num_frames_all_files[j])

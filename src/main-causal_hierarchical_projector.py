@@ -6,13 +6,25 @@ import pprint
 import numpy as np
 import torch
 
-from trainers_causal_hierarchical import TrainerTCN
+from trainers_causal_hierarchical_projector import TrainerTCN
+#from trainers_causal_hierarchical import TrainerTCN
 #from batch_gen import BatchGeneratorTCN
 from batch_gen_darai import BatchGeneratorTCN
 
 from batch_gen_assembly import BatchGeneratorAssembly101TCN
 
 from torch.utils.tensorboard import SummaryWriter
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+torch.backends.cuda.enable_flash_sdp(True)    # PyTorch SDPA가 플래시 어텐션 경로를 쓰도록
+torch.backends.cuda.enable_math_sdp(True)
+torch.backends.cuda.enable_mem_efficient_sdp(True)
+torch.backends.cudnn.benchmark = True
+os.environ["TORCH_CUDNN_SDPA_ENABLED"] = "1"         # cuDNN SDPA도 후보
+
+# 2) TF32 켜기 (Ampere+ 하드웨어일 때 matmul 가속)
+torch.set_float32_matmul_precision("high")
+
 
 
 seed = 1538574472

@@ -220,7 +220,7 @@ def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
 #     context = torch.stack(context, dim=1)  # (B, T, D)
 #     return context
 
-def encode_texts(texts, clip_model, device='cuda:1'):
+def encode_texts(texts, clip_model, device='cuda:0'):
     tokens = clip.tokenize(texts).to(device)
     with torch.no_grad():
         text_features = clip_model.encode_text(tokens)  # (N, 512)
@@ -229,7 +229,7 @@ def encode_texts(texts, clip_model, device='cuda:1'):
 
 def decode_clip_embedding_to_text(
     clip_embedding,
-    device='cuda:1',
+    device='cuda:0',
     features_dir="/home/hice1/skim3513/scratch/causdiff/datasets/darai/features_description_text",
     out_txt_path="/home/hice1/skim3513/scratch/causdiff/datasets/darai/out.txt", topk=5
 ):
@@ -297,7 +297,7 @@ def decode_clip_embedding_to_text(
 
     return results
 
-def pick_darai_action_by_similarity(model_out, clip_model, device="cuda:1"):
+def pick_darai_action_by_similarity(model_out, clip_model, device="cuda:0"):
     """
     model_out: torch.Tensor or np.ndarray, shape (512,) or (1,512) or (N,512)
     return: dict (top-1) 또는 list of dicts (top-k)
@@ -326,7 +326,7 @@ def pick_darai_action_by_similarity(model_out, clip_model, device="cuda:1"):
     idx = int(top_idxs[r].item())
     return action_ids[idx]
 
-def build_action_feats(DARAI_ACTION, clip_model, device="cuda:1"):
+def build_action_feats(DARAI_ACTION, clip_model, device="cuda:0"):
     import clip
     texts = [DARAI_ACTION[i] for i in sorted(DARAI_ACTION.keys())]
     with torch.no_grad():
@@ -479,7 +479,7 @@ def ce_loss_with_clip_head(
 
 
 # # Main function: input = CLIP vector → output = "goal_text, action_text"
-# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda:1'):
+# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda:0'):
 #     if clip_embedding.dim() == 1:
 #         clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
 #     clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
@@ -595,7 +595,7 @@ class GaussianBitDiffusion(nn.Module):
         
         super().__init__()
         # self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda:1')
+        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda:0')
         # self.text_encoder.eval()  # inference only
         
         print(f'Num classes : {num_classes}')
@@ -692,7 +692,7 @@ class GaussianBitDiffusion(nn.Module):
             "Get ingredients",
             "Having a meal",
             "Mix ingredients",
-            "Prep ingredients",
+            "Prepare ingredients",
             "Prepare Kitchen appliance",
             "Scroll on tablet",
             "Setting a table",
@@ -718,7 +718,7 @@ class GaussianBitDiffusion(nn.Module):
         S, B, T, D = subgoal_features.shape
         
         # Get global goal features (only once)
-        #with torch.amp.autocast('cuda:1'):
+        #with torch.amp.autocast('cuda:0'):
             #global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
             #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
             #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
@@ -906,7 +906,7 @@ class GaussianBitDiffusion(nn.Module):
             pseudo_caps = [self.phrase_bank[i.item()] for i in top]
             lm_loss = self.lmc.lm_loss_from_subgoals(sub_vecs, pseudo_caps)        # scalar
 
-        self.lmc.save_subgoal_texts(s_sbt=model_out_goal[0].unsqueeze(0),out_dir="./src/debug_subgoals",idx=0)
+        # self.lmc.save_subgoal_texts(s_sbt=model_out_goal[0].unsqueeze(0),out_dir="./src/debug_subgoals",idx=0)
         subgoal_seq = model_out_goal # (S x B x T x C)
         #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
         gt_goal_one_hot = gt_goal_one_hot[:, :1, :]

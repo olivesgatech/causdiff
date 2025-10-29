@@ -17,23 +17,14 @@ from transformers import AutoTokenizer, AutoModel
 import os, re, glob
 from subgoal_text_matching import render_l2_from_subgoal_embeddings
 from visualize_goal_action import cluster_goal_embeddings, action_erank_and_spectrum
+from visualize import plot_intentions_2d_GSA, plot_intentions_2d_GS, save_matrix_npy
 import random
-from visualize import save_matrix_npy
+from causal_attention import CausalAttention
+from qwen_online_encoder_loraenable import QwenVLOnlineEncoder
 
-ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
-# BREAKFAST_GOAL = {
-#     0: "a person is making scrambled egg",
-#     1: "a person is making tea",
-#     2: "a person is making coffee",
-#     3: "a person is making milk",
-#     4: "a person is making fried egg",
-#     5: "a person is making cereals",
-#     6: "a person is making pancake",
-#     7: "a person is making sandwich",
-#     8: "a person is making salat",
-#     9: "a person is making juice"
-# }
+ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
+
 
 BREAKFAST_GOAL = {
     0: "the goal is to prepare scrambled eggs for breakfast",
@@ -49,57 +40,6 @@ BREAKFAST_GOAL = {
 }
 
 
-BREAKFAST_ACTION = {
-    0:  "a person is silent",
-    1:  "a person is pouring cereals",
-    2:  "a person is pouring milk",
-    3:  "a person is stirring cereals",
-    4:  "a person is taking a bowl",
-    5:  "a person is pouring coffee",
-    6:  "a person is taking a cup",
-    7:  "a person is spooning sugar",
-    8:  "a person is stirring coffee",
-    9:  "a person is pouring sugar",
-    10: "a person is pouring oil",
-    11: "a person is cracking an egg",
-    12: "a person is adding salt and pepper",
-    13: "a person is frying an egg",
-    14: "a person is taking a plate",
-    15: "a person is putting an egg on a plate",
-    16: "a person is taking eggs",
-    17: "a person is buttering a pan",
-    18: "a person is taking a knife",
-    19: "a person is cutting an orange",
-    20: "a person is squeezing an orange",
-    21: "a person is pouring juice",
-    22: "a person is taking a glass",
-    23: "a person is taking a squeezer",
-    24: "a person is spooning powder",
-    25: "a person is stirring milk",
-    26: "a person is spooning flour",
-    27: "a person is stirring dough",
-    28: "a person is pouring dough into a pan",
-    29: "a person is frying a pancake",
-    30: "a person is putting a pancake on a plate",
-    31: "a person is pouring flour",
-    32: "a person is cutting fruit",
-    33: "a person is putting fruit into a bowl",
-    34: "a person is peeling fruit",
-    35: "a person is stirring fruit",
-    36: "a person is cutting a bun",
-    37: "a person is smearing butter",
-    38: "a person is taking a topping",
-    39: "a person is putting the topping on top",
-    40: "a person is putting the bun together",
-    41: "a person is taking butter",
-    42: "a person is stirring eggs",
-    43: "a person is pouring eggs into a pan",
-    44: "a person is stir-frying eggs",
-    45: "a person is adding a teabag",
-    46: "a person is pouring water",
-    47: "a person is stirring tea"
-}
-
 DARAI_GOAL = {
     0: "Using handheld smart devices",
     1: "Making a cup of instant coffee",
@@ -109,57 +49,6 @@ DARAI_GOAL = {
     5: "Making a cup of coffee in coffee maker",
     6: "Cleaning the kitchen",
 }
-DARAI_ACTION = {
-    0: "Add batter",
-    1: "Add coffee",
-    2: "Add flour",
-    3: "Add milk",
-    4: "Add sugar",
-    5: "Add water",
-    6: "Check cabinet",
-    7: "Check pancake",
-    8: "Check refrigerator",
-    9: "Clean with broom",
-    10: "Clean with mop",
-    11: "Clean with paper towel",
-    12: "Clean with towel",
-    13: "Conversation on the phone",
-    14: "Crack egg",
-    15: "Drink",
-    16: "Dry dishes",
-    17: "Eat",
-    18: "Fill coffee machine with water",
-    19: "Fill kettle with water",
-    20: "Get coffee",
-    21: "Get cup",
-    22: "Get filter",
-    23: "Get instant coffee",
-    24: "Get pan",
-    25: "Get spoon",
-    26: "Load dishwasher",
-    27: "Place cup",
-    28: "Place dishes",
-    29: "Place drink",
-    30: "Place filter",
-    31: "Place food",
-    32: "Place pan",
-    33: "Place silverware",
-    34: "Prepare for activity",
-    35: "Rinse dishes",
-    36: "Scroll on the phone",
-    37: "Scroll on the tablet",
-    38: "Stir",
-    39: "Stir pancake ingredients",
-    40: "Take out Kitchen and cooking tools",
-    41: "Take out pancake ingredients",
-    42: "Turn on coffee machine",
-    43: "Turn on dishwasher",
-    44: "Turn on kettle",
-    45: "Turn on stove",
-    46: "Unloading dishwasher",
-    47: "UNDEFINED",
-}
-
 SALADS_GOAL = {
     0: "Cut and mix ingredients",
     1: "Prepare dressing",
@@ -167,204 +56,6 @@ SALADS_GOAL = {
     3: "Action end",
     4: "Action start",
 }
-
-def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
-    """
-    Efficient time-causal self-attention summarization over (B, T, D).
-    Each timestep attends only to previous and current subgoals.
-    
-    Args:
-        subgoal_seq: (B, T, D) tensor of subgoal sequence
-    
-    Returns:
-        context: (B, T, D) causal attention summary
-    """
-    B, T, D = subgoal_seq.shape
-    q = subgoal_seq  # (B, T, D)
-    k = subgoal_seq
-    v = subgoal_seq
-
-    # Compute attention scores: (B, T, T)
-    attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (D ** 0.5)  # (B, T, T)
-
-    # Apply causal mask (upper triangle = -inf)
-    causal_mask = torch.triu(torch.ones(T, T, device=subgoal_seq.device), diagonal=1).bool()
-    attn_scores = attn_scores.masked_fill(causal_mask.unsqueeze(0), float('-inf'))
-
-    attn_weights = F.softmax(attn_scores, dim=-1)  # (B, T, T)
-
-    # Weighted sum over values: (B, T, D)
-    context = torch.matmul(attn_weights, v)
-
-    return context
-
-
-def decode_clip_embedding_to_text(
-    clip_embedding,
-    device='cuda:0',
-    features_dir="/home/hice1/skim3513/scratch/causdiff/datasets/darai/features_description_text",
-    out_txt_path="/home/hice1/skim3513/scratch/causdiff/datasets/darai/out.txt", topk=5
-):
-    # ---- 1) clip_embedding → (1, D) float tensor on device ----
-    if not isinstance(clip_embedding, torch.Tensor):
-        clip_embedding = torch.as_tensor(clip_embedding)
-    clip_embedding = clip_embedding.float().to(device)
-
-    if clip_embedding.ndim == 1:
-        clip_embedding = clip_embedding.unsqueeze(0)  # (1, D)
-    else:
-        clip_embedding = clip_embedding.reshape(clip_embedding.shape[0], -1)
-        if clip_embedding.shape[0] > 1:
-            clip_embedding = clip_embedding[:1, :]
-    clip_embedding = F.normalize(clip_embedding, dim=-1)  # (1, D)
-
-    # ---- 2) feature 로드 → (N, D) ----
-    npy_paths = sorted(glob.glob(os.path.join(features_dir, "*.npy")))
-    if not npy_paths:
-        raise FileNotFoundError(f"No .npy features found in {features_dir}")
-
-    feats_list, stems = [], []
-    for p in npy_paths:
-        arr = np.load(p)
-        arr = np.asarray(arr, dtype=np.float32)
-        if arr.ndim >= 2:
-            arr = arr.reshape(-1)
-        if arr.size == 0:
-            continue
-        feats_list.append(arr)
-        stems.append(os.path.splitext(os.path.basename(p))[0])  # "00017"
-
-    if not feats_list:
-        raise RuntimeError(f"No valid feature arrays in {features_dir}")
-
-    feats = torch.from_numpy(np.stack(feats_list, axis=0)).to(device)  # (N, D)
-    feats = F.normalize(feats, dim=-1)
-
-    # ---- 3) 코사인 유사도 & Top-K ----
-    sims = torch.matmul(clip_embedding, feats.t()).flatten()  # (N,)
-    k = int(min(topk, sims.numel()))
-    top_vals, top_idxs = torch.topk(sims, k=k, largest=True, sorted=True)  # (k,)
-
-    # ---- 4) out.txt 로부터 텍스트 매핑 ----
-    with open(out_txt_path, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = [ln.rstrip('\n') for ln in f]
-
-    results = []
-    for rank in range(k):
-        idx = int(top_idxs[rank].item())
-        stem = stems[idx]                  # "00017"
-        feat_path = npy_paths[idx]
-        # stem에서 숫자 추출 후 +1 → 1-indexed 라인
-        m = re.search(r'(\d+)$', stem)
-        file_index = int(m.group(1)) if m else idx
-        line_num = file_index + 1
-        if line_num < 1: line_num = 1
-        if line_num > len(lines): line_num = len(lines)
-        text = lines[line_num - 1].strip()
-
-        results.append({
-            "text": text,
-            "score": float(top_vals[rank].item()),
-        })
-
-    return results
-
-
-
-def ce_loss_with_clip_head(
-    model_out,
-    action_feats,                  # (A,512)  = DARAI_ACTION 텍스트를 CLIP으로 임베딩한 프로토타입
-    targets,                       # (...,512) 임베딩  또는 (...,A) 원-핫  또는 (...,) 인덱스
-    temperature: float = 0.07,
-    mask_all=None,                 # (같은 leading shape) 마스크 0/1
-    label_smoothing: float = 0.0,
-    micro_average: bool = True,
-    class_mask=None,               # (K,) 허용 클래스 인덱스. None이면 0..A-1 모두 허용
-    debug: bool = False,
-):
-    """
-    model_out: (..., 512)           e.g. (S,B,T,512)
-    action_feats: (A,512)           A=48
-    targets:   (...,512) 임베딩 or (...,A) 원-핫 or (...,) 인덱스
-    class_mask: 허용할 클래스의 인덱스 리스트/LongTensor. 제공 시 해당 subset에 대해서만 CE 계산.
-    반환: (loss, pred)  pred의 shape = targets의 leading shape (클래스 축 제외)
-    """
-    dev = action_feats.device
-    A, D = action_feats.shape
-    leading_shape = tuple(model_out.shape[:-1])        # ex) (S,B,T)
-    N = int(torch.tensor(leading_shape).clamp_min(1).prod().item()) if len(leading_shape) else model_out.shape[0]
-
-    # --- 1) 로짓: (N,A) ---
-    x = torch.as_tensor(model_out, device=dev, dtype=torch.float32).reshape(-1, D)
-    x = F.normalize(x, dim=-1)
-    proto = F.normalize(action_feats, dim=-1)          # (A,512)
-    logits_full = x @ proto.to(dev).t() / float(temperature)  # (N,A)
-
-    # --- 2) 타깃을 "정수 인덱스"로 통일 ---
-    tgt = torch.as_tensor(targets, device=dev)
-    if tgt.shape == leading_shape + (D,):              # (...,512) 임베딩 → 최근접 클래스
-        t = F.normalize(tgt.reshape(-1, D).float(), dim=-1)       # (N,512)
-        tgt_logits = t @ proto.to(dev).t() / float(temperature)   # (N,A)
-        tgt_idx = tgt_logits.argmax(dim=-1)                       # (N,)
-    elif tgt.shape == leading_shape + (A,):            # (...,A) 원-핫/소프트 → argmax
-        tgt_idx = tgt.argmax(dim=-1).reshape(-1).long()           # (N,)
-    else:                                              # (...,) 인덱스
-        tgt_idx = tgt.reshape(-1).long()                            
-
-    # 길이 맞추기(안전 가드)
-    if tgt_idx.numel() != logits_full.size(0):
-        minN = min(tgt_idx.numel(), logits_full.size(0))
-        tgt_idx    = tgt_idx[:minN]
-        logits_full = logits_full[:minN]
-        if mask_all is not None:
-            mask_all = torch.as_tensor(mask_all, device=dev)
-            mask_all = mask_all.reshape(-1)[:minN]
-
-    # --- 3) 클래스 마스크(선택): 특정 클래스만 허용하고 싶을 때 ---
-    if class_mask is not None:
-        allow = torch.as_tensor(class_mask, device=dev, dtype=torch.long)  # (K,)
-        # 로짓을 허용된 클래스 열만 고름 → (N,K)
-        logits = logits_full.index_select(dim=1, index=allow)
-
-        # 원래 인덱스를 subset 인덱스로 매핑, 허용 외는 ignore_index로 마스킹
-        ignore_index = -100
-        map_table = -torch.ones(A, device=dev, dtype=torch.long)  # default -1
-        map_table[allow] = torch.arange(allow.numel(), device=dev)
-        tgt_mapped = map_table[tgt_idx]                           # (N,)
-        # 허용되지 않은 타깃은 무시되도록 CE(ignore_index) 사용
-        loss_vec = F.cross_entropy(
-            logits, tgt_mapped, reduction='none',
-            label_smoothing=label_smoothing, ignore_index=ignore_index
-        )
-        # 예측 (subset 내 argmax → 원래 인덱스로 복원)
-        pred_idx = allow[logits.argmax(dim=-1)]
-    else:
-        logits = logits_full                                     # (N,A)
-        loss_vec = F.cross_entropy(
-            logits, tgt_idx, reduction='none', label_smoothing=label_smoothing
-        )
-        pred_idx = logits.argmax(dim=-1)                         # (N,)
-
-    # --- 4) 마스크 적용 & 리덕션 ---
-    if mask_all is not None:
-        m = torch.as_tensor(mask_all, device=dev, dtype=loss_vec.dtype).reshape(-1)
-        minN = min(m.numel(), loss_vec.numel())
-        m, loss_vec, pred_idx = m[:minN], loss_vec[:minN], pred_idx[:minN]
-        if micro_average:
-            loss = (loss_vec * m).sum() / m.sum().clamp_min(1e-6)
-        else:
-            loss = (loss_vec * m).sum() / (m > 0).float().sum().clamp_min(1e-6)
-    else:
-        loss = loss_vec.mean()
-
-    # --- 5) 예측을 원래 leading shape로 복원 ---
-    pred = pred_idx.reshape(*leading_shape) if len(leading_shape) else pred_idx
-    return loss
-
-
-def cosine_loss(x, y):
-    cos_sim = F.cosine_similarity(x, y, dim=-1)
-    return 1 - cos_sim
 
 class DiffusionModel(nn.Module):
     """
@@ -385,18 +76,10 @@ def exists(x):
     return x is not None
 
 
-def identity(t, *args, **kwargs):
-    return t
-
-
 def default(val, d):
     if exists(val):
         return val
     return d() if callable(d) else d
-
-
-def has_int_squareroot(num):
-    return (math.sqrt(num) ** 2) == num
 
 
 def extract(a, t, x_shape):
@@ -410,10 +93,6 @@ def linear_beta_schedule(timesteps):
     beta_start = scale * 0.0001
     beta_end = scale * 0.02
     return torch.linspace(beta_start, beta_end, timesteps, dtype=torch.float64)
-
-
-def l2norm(t):
-    return F.normalize(t, dim=-1)
 
 
 def cosine_beta_schedule(timesteps, s=0.008):
@@ -433,7 +112,9 @@ class GaussianBitDiffusion(nn.Module):
     def __init__(
         self,
         model: nn.Module,
+        goalmodel:nn.Module,
         condition_x0:False,
+        clip_model,
         *,
         num_classes=48,
         timesteps=1000,  
@@ -457,6 +138,7 @@ class GaussianBitDiffusion(nn.Module):
         self.model = model
         self.num_classes = num_classes
         self.condition_x0 = condition_x0
+        self.goalmodel = goalmodel
 
         # RECONSTRUCTION OBJ
         self.objective = objective
@@ -517,11 +199,103 @@ class GaussianBitDiffusion(nn.Module):
         self.ddim_timesteps = ddim_timesteps
         self.ddim_timestep_seq = ddim_timestep_seq
 
+        self.clip = clip_model
+        for param in self.clip.parameters():
+            param.requires_grad = False
 
-        self.alpha = nn.Parameter(torch.full((1,1,512), 0.0))
-        self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
-        self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
+        #self.alpha = nn.Parameter(torch.full((1,1,512), 0.0))
+        #self.action_feats = build_action_feats(DARAI_ACTION, self.clip)
+        #self.id2text = [DARAI_ACTION[i] for i in range(len(DARAI_ACTION))]
+        #self.emb_norm = nn.LayerNorm(512, elementwise_affine=True)
+
+        self.attn = CausalAttention(d_model=512, n_heads=8, num_goal_tokens=4, share_qkv=True, causal_mask=False)
+
+        self.use_lm = True
+        self.lm_update_prob = 0.2          # 매 step 중 20%만 LLM 손실 계산 (메모리/속도 절약)
+        self.lambda_lm = 0.3               # LLM CE 가중
+        
+        self.phrase_bank = [
+            "Bake pancake",
+            "Cleaning Countertops",
+            "Cleaning Floor",
+            "Get ingredients",
+            "Having a meal",
+            "Mix ingredients",
+            "Prepare ingredients",
+            "Prepare Kitchen appliance",
+            "Scroll on tablet",
+            "Setting a table",
+            "Take out Kitchen and cooking tools",
+            "Take out smartphone",
+            "Throw out leftovers",
+            "Using Smartphone",
+            "Using Tablet",
+            "Washing and Drying dishes with hands"
+        ]
+        # with torch.no_grad():
+        #     toks = clip.tokenize(self.phrase_bank).to(next(self.clip.parameters()).device)
+        #     feats = self.clip.encode_text(toks).float()
+        # self.phrase_feats = F.normalize(feats, dim=-1)   # (P,512)
+        self.align_temp = 0.07
+        self.lambda_align = 0.3 
+
+        self.qwen_enc = QwenVLOnlineEncoder(
+            model_id="Qwen/Qwen2-VL-7B-Instruct",
+            device="cuda",
+            torch_dtype=torch.bfloat16,
+            cache_dir="/home/hice1/skim3513/scratch/causdiff/hf_cache",
+            lora_rank=4,
+            lora_alpha=8,
+            lora_dropout=0.05,
+            target_modules=("q_proj","k_proj","v_proj","o_proj"),
+            freeze_vision_tower=True,
+            freeze_mm_projector=False,
+            max_side=448
+        )
+
+        # === NEW: 프로젝션 헤드 & 로짓 스케일 (게으른 초기화) ===
+        self.proj_vlm = None   # nn.Linear(D_vlm, 512, bias=False)
+        self.proj_diff = None  # nn.Linear(D_diff, 512, bias=False)
+        self.logit_scale = nn.Parameter(torch.tensor(3.0))  # CLIP-style; exp(3)≈20
+        self.lambda_contrast = 1#0.5
     
+    def _ensure_proj_heads(self, vlm_latents, diff_vecs, out_dim=512):
+        # vlm_latents: (B,T,Dv)
+        # diff_vecs  : (B,T,Dd)
+        Dv = vlm_latents.shape[-1]
+        Dd = diff_vecs.shape[-1]
+        if self.proj_vlm is None:
+            self.proj_vlm = nn.Linear(Dv, out_dim, bias=False).to(vlm_latents.device)
+        if self.proj_diff is None:
+            self.proj_diff = nn.Linear(Dd, out_dim, bias=False).to(diff_vecs.device)
+
+    def _info_nce_timewise(self, q, k, mask=None, temperature=0.07):
+        """
+        q, k: (B,T,D), 동일 시점끼리 positive, 배치 내 나머지는 negative
+        mask: (B,T) 0/1 유효 마스크
+        """
+        
+        B,T,D = q.shape
+        
+        q = F.normalize(q, dim=-1)
+        k = F.normalize(k, dim=-1)
+
+        qf = q.reshape(B*T, D)      # (N,D)
+        kf = k.reshape(B*T, D)      # (N,D)
+        logits = qf @ kf.t() / temperature   # (N,N)
+        targets = torch.arange(B*T, device=q.device)
+
+        if mask is not None:
+            m = mask.reshape(B*T).bool()
+            idx = torch.nonzero(m, as_tuple=False).squeeze(1)
+            
+            logits = logits[idx][:, idx]
+            
+            targets = torch.arange(idx.numel(), device=q.device)
+
+        loss = F.cross_entropy(logits, targets)
+        return loss
+
     def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
         subgoal_features: (S,B,T,D) - semantic features from DiffSingleStageModel
@@ -529,23 +303,6 @@ class GaussianBitDiffusion(nn.Module):
         """
         S, B, T, D = subgoal_features.shape
         
-        # Get global goal features (only once)
-        #with torch.amp.autocast('cuda:0'):
-            #global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
-            #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
-            #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-            #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-            #global_goal_texts = [SALADS_GOAL[idx.item()] for idx in global_goal_classes]
-            
-            
-            #global_goal_tokens = clip.tokenize(global_goal_texts).to(global_goal.device)
-            #global_goal_features = self.clip.encode_text(global_goal_tokens)  # (B, 512)
-            
-            # Expand global goal features to match subgoal shape
-            # (B, 512) -> (B, 1, 512) -> (B, T, 512)
-            #global_goal_features = global_goal_features.unsqueeze(1).expand(-1, T, -1)
-            # (B, T, 512) -> (1, B, T, 512) -> (S, B, T, 512)
-            #global_goal_features = global_goal_features.unsqueeze(0).expand(S, -1, -1, -1)
         global_goal_features = global_goal.unsqueeze(0).expand(S,-1,-1,-1)
         
         # Now both tensors are (S, B, T, D)
@@ -616,24 +373,94 @@ class GaussianBitDiffusion(nn.Module):
                 obs,
                 mask_all,
                 mask_past,gt_goal=None,gt_goal_one_hot=None,
-                noise=None):
+                noise=None, images_paths_batch=None,):
         condition = False
         # SAMPLE x_t from q(x_t | x_o)
         
+        ############## GUESS LABEL ###################
         x_start = x_0
         
         noise = default(noise, lambda: torch.randn_like(x_start))
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
+        # sample: goal
+        _, T, _ = gt_goal_one_hot.shape
+        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
+        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+
+
+        # CLIP Tokenization
+        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+
+        # 2. 확장 (time axis 맞추기)
+        goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
+        #goal_start = gt_goal_one_hot # (16, 1816, 10)
+        goal_noise = None
+        goal_noise = default(goal_noise, lambda: torch.randn_like(goal_start))
+        
+        goal_t = self.q_sample(x_start=goal_start, t=t, noise=goal_noise)
+
         # OBSERVATION CONDITIONING
         obs_cond = obs * mask_past
-        
+
         # SELF-CONDITIONING
-        #self_cond = torch.zeros_like(x_0).to(x_0.device)
+        #self_cond = torch.zeros_like(gt_goal_one_hot).to(gt_goal_one_hot.device)
+        self_cond = torch.zeros((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)#384
         
         if torch.rand((1)) < 0.5 and self.condition_x0:
-            self_cond = torch.zeros((x_0.shape[0], x_0.shape[1], x_0.shape[2] + gt_goal_one_hot.shape[2]), device=x_0.device)
             with torch.no_grad():
+                _, infer_goal = self.goalmodel(
+                    x=goal_t, 
+                    t=t, 
+                    stage_masks=mask_all,
+                    obs_cond=obs_cond, # frames
+                    self_cond=self_cond,
+                )
+                self_cond = self.attn(infer_goal[-1], goal_features) # (B, T, D)
+                #self_cond = infer_goal[-1].detach()
+
+        # REVERSE STEP
+        _, model_out_goal = self.goalmodel(
+            x=goal_t,
+            t=t,
+            stage_masks=mask_all,
+            obs_cond=obs_cond,
+            self_cond=self_cond,
+        )  # S x B x T x C
+
+        S, B, T, _ = model_out_goal.shape
+
+        subgoal_seq = model_out_goal # (S x B x T x C)
+        goal_repeat = subgoal_seq[-1] # (B x T x C)
+
+        vlm_latents = self.qwen_enc(
+            images=images_paths_batch,
+            global_intention=global_goal_texts,
+            frame_indices=None, total_len=None, recent_subs_batch=None
+        )  # (B,T,Dv)
+        self._ensure_proj_heads(vlm_latents, goal_repeat)  # lazy init
+        if torch.rand((1)) < 0.5:
+            q_vlm = self.proj_vlm(vlm_latents)                 # grad ON
+            k_diff = self.proj_diff(goal_repeat.detach())      # grad OFF
+            #self.lambda_contrast = 0.01
+        else:
+            q_vlm = self.proj_vlm(vlm_latents.detach())                 # grad OFF
+            k_diff = self.proj_diff(goal_repeat)      # grad ON
+        
+
+        valid = mask_all[-1].squeeze(-1).to(q_vlm.dtype)   # (B,T)
+        temp = torch.exp(self.logit_scale).clamp(1/100.0, 100.0).detach()
+        nce  = self._info_nce_timewise(q_vlm, k_diff, mask=valid, temperature=float(1.0/temp))
+
+
+        #goal_logits = model_out_goal.mean(dim=2, keepdim=True) # (S, B, 1, C)
+        gt_goal_one_hot = gt_goal_one_hot[:, :1, :]
+        # SELF-CONDITIONING
+        if torch.rand((1)) < 0.5 and self.condition_x0:
+            with torch.no_grad():
+                self_cond = torch.zeros((model_out_goal.shape[1], model_out_goal.shape[2], x_0.shape[2]+model_out_goal.shape[3]), device=model_out_goal.device)
                 self_cond, _ = self.model(
                     x=x_t, 
                     t=t, 
@@ -645,9 +472,9 @@ class GaussianBitDiffusion(nn.Module):
                 self_cond = self_cond.detach()
         else:
             self_cond = torch.zeros_like(x_0).to(x_0.device)
+            
         
-        #self_cond = self_cond + gt_goal_one_hot
-        self_cond = torch.cat([self_cond, gt_goal_one_hot], dim=2)
+        self_cond = torch.cat([self_cond, goal_repeat], dim=2) # (b,t,2c)
         # REVERSE STEP
         model_out, _ = self.model(
             x=x_t,
@@ -673,6 +500,17 @@ class GaussianBitDiffusion(nn.Module):
             mask_all = torch.stack(mask_all, dim=0)
             loss = self.loss_fn(model_out, target, reduction="none")  # S x B x T x C
             loss = torch.sum(torch.mean(loss * mask_all, dim=(2, 3)))
+            if gt_goal is not None:
+                ### goal diffusion: goal_logits (S x B x 1 x C)
+                ### action diffusion: model_out (S x B x T x C)
+                loss_goal = self.semantic_consistency_loss(
+                    subgoal_features=subgoal_seq,
+                    global_goal=goal_start
+                )
+                #loss_goal = torch.sum(torch.mean(loss_goal * mask_all, dim=(2, 3)))
+                loss += loss_goal
+            loss = loss + self.lambda_contrast * nce
+
 
         # OUT
         return loss, rearrange(model_out, 's b t c -> s b c t')
@@ -692,6 +530,8 @@ class GaussianBitDiffusion(nn.Module):
         mask_past = mask_past.to(torch.bool)
         mask_past = repeat(mask_past, 'b t 1 -> b t c', c=obs.shape[-1]) # (16, 2996, 2048)
 
+        video_name = batch['video_name']
+
         # get random diff timestep
         t = torch.randint(0, self.num_timesteps, (obs.size(0),), device=obs.device).long() # (16)
         return self.p_losses(
@@ -700,15 +540,13 @@ class GaussianBitDiffusion(nn.Module):
             obs = obs,
             mask_past = mask_past,
             mask_all = masks_stages,
-            gt_goal=gt_goal, gt_goal_one_hot=gt_goal_one_hot,
+            gt_goal=gt_goal, gt_goal_one_hot=gt_goal_one_hot, images_paths_batch=video_name,
             *args, **kwargs
         )
 
- 
-
     # ---------------------------------- INFERENCE (DDIM) --------------------------------------
 
-    def model_predictions(self, x, pred_x_start_prev, t, obs, stage_masks, gt_goal=None, gt_goal_one_hot=None,index=0):
+    def model_predictions(self, x, pred_x_start_prev, goal_x, goal_pred_x_start_prev, t, obs, stage_masks, gt_goal=None, gt_goal_one_hot=None, index=0):
         x_t = x
         B,T,C=gt_goal_one_hot.shape
         # Given x_t, reconsturct x_0
@@ -718,8 +556,33 @@ class GaussianBitDiffusion(nn.Module):
         if self.condition_x0:
             self_cond = pred_x_start_prev
         
-        #self_cond = self_cond + gt_goal_one_hot
-        self_cond = torch.cat([self_cond, gt_goal_one_hot], dim=2)
+        ###################################################################################
+        #goal_t = gt_goal_one_hot#torch.randn((B, T, C)).to(pred_x_start_prev.device)  # e.g., (16, 1, 48) shaped random noise
+        goal_t = goal_x
+        _, T, _ = gt_goal_one_hot.shape
+        global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
+        #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        
+        ## CLIP tokenization
+        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        #goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
+
+        self_cond_goal = self.attn(goal_pred_x_start_prev, goal_features)
+
+        _, infer_goal = self.goalmodel(
+            x=goal_t, 
+            t=t, 
+            stage_masks=stage_masks,
+            obs_cond=obs,
+            self_cond = self_cond_goal,
+        )
+        random_sample = 0
+        infer_goal = infer_goal[-1] # (25, 106, 512)
+        
+        self_cond = torch.cat([self_cond, infer_goal], dim=2)
+        
         ##################################################################################
         
         # PRED
@@ -730,10 +593,6 @@ class GaussianBitDiffusion(nn.Module):
             obs_cond=obs,
             self_cond=self_cond,
         )
-        #render_l2_from_subgoal_embeddings(model_feature[random_sample][0].cpu(),f'{t}_model')
-        #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
-        # if int(t.item()) == 0:
-        #     save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":
@@ -744,7 +603,10 @@ class GaussianBitDiffusion(nn.Module):
             pred_x_start = model_output
             pred_noise = self.predict_noise_from_start(x, t, pred_x_start) * stage_masks[-1]
 
-        return ModelPrediction(pred_noise, pred_x_start)
+        pred_goal_start = infer_goal
+        pred_goal_noise = self.predict_noise_from_start(goal_t, t, pred_goal_start) * stage_masks[-1]
+            
+        return ModelPrediction(pred_noise, pred_x_start, pred_goal_noise, pred_goal_start)
 
 
 
@@ -752,22 +614,28 @@ class GaussianBitDiffusion(nn.Module):
     def p_sample_ddim(
         self,
         x,
-        pred_x_start_prev,
+        pred_x_start_prev, goal_x, goal_pred_x_start_prev,
         t,
         t_prev,
         batch,
-        if_prev=False,index=0
+        if_prev=False,
+        index=0
     ):
         
         gt_goal_one_hot = batch['goal_one_hot']
         # MODEL PRED
         preds = self.model_predictions(x=x,
                                        pred_x_start_prev=pred_x_start_prev,
+                                       goal_x=goal_x,
+                                       goal_pred_x_start_prev=goal_pred_x_start_prev,
                                        t=t,
                                        obs=batch['obs'] * batch['mask_past'],
-                                       stage_masks=batch['mask_all'], gt_goal=batch['goal'],gt_goal_one_hot=gt_goal_one_hot,index=index)
+                                       stage_masks=batch['mask_all'], gt_goal=batch['goal'],gt_goal_one_hot=gt_goal_one_hot, index=index)
         pred_x_start = preds.pred_x_start
         pred_noise = preds.pred_noise
+
+        pred_goal_start = preds.pred_goal_start
+        pred_goal_noise = preds.pred_goal_noise
 
         # PRED X_0
         alpha_bar = extract(self.alphas_cumprod, t, x.shape)
@@ -790,7 +658,28 @@ class GaussianBitDiffusion(nn.Module):
 
         nonzero_mask = (1 - (t == 0).float()).reshape(x.shape[0], *((1,) * (len(x.shape) - 1)))
 
-        return mean_pred + nonzero_mask * sigma * noise, pred_x_start
+
+        # PRED goal
+        alpha_bar_goal = extract(self.alphas_cumprod, t, gt_goal_one_hot.shape)
+        if if_prev:
+            alpha_bar_prev_goal = extract(self.alphas_cumprod_prev, t_prev, gt_goal_one_hot.shape)
+        else:
+            alpha_bar_prev_goal = extract(self.alphas_cumprod, t_prev, gt_goal_one_hot.shape)
+        sigma_goal = (
+                self.eta
+                * torch.sqrt((1 - alpha_bar_prev_goal) / (1 - alpha_bar_goal))
+                * torch.sqrt(1 - alpha_bar_goal / alpha_bar_prev_goal)
+        )
+
+        # Compute mean and var
+        noise_goal = torch.randn_like(gt_goal_one_hot) 
+        mean_pred_goal = (
+                pred_goal_start * torch.sqrt(alpha_bar_prev_goal)
+                + torch.sqrt(1 - alpha_bar_prev_goal - sigma_goal ** 2) * pred_goal_noise
+        )
+
+        nonzero_mask_goal = (1 - (t == 0).float()).reshape(gt_goal_one_hot.shape[0], *((1,) * (len(gt_goal_one_hot.shape) - 1)))
+        return mean_pred + nonzero_mask * sigma * noise, pred_x_start, mean_pred_goal+nonzero_mask_goal*sigma_goal*noise_goal, pred_goal_start
 
    
 
@@ -805,12 +694,14 @@ class GaussianBitDiffusion(nn.Module):
         # INPUT
         device = self.betas.device
         x_0_pred = torch.zeros_like(batch["x_0"]).to(batch["x_0"].device)  # only used for shape
-
+        goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
     
         # INIT PREDICTION (normal distr noise)
         pred = torch.randn_like(x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
         init_noise = pred.clone()
         pred = pred.contiguous()
+        goal_pred = torch.randn_like(goal_x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
+        goal_pred = goal_pred.contiguous()
 
         # SAMPLE
         assert n_diffusion_steps == len(self.ddim_timestep_seq) # 50
@@ -827,20 +718,23 @@ class GaussianBitDiffusion(nn.Module):
             batched_times = torch.full((pred.shape[0],), self.ddim_timestep_seq[t], device=pred.device, dtype=torch.long)
             if t == 0:
                 batched_times_prev = torch.full((pred.shape[0],), 0, device=device, dtype=torch.long)
-                pred, x_0_pred = self.p_sample_ddim(
+                pred, x_0_pred, goal_pred, goal_x_0_pred = self.p_sample_ddim(
                     x=pred, 
                     pred_x_start_prev=x_0_pred,
+                    goal_x=goal_pred,
+                    goal_pred_x_start_prev=goal_x_0_pred,
                     t=batched_times, 
                     t_prev=batched_times_prev, 
                     batch=batch,
                     if_prev=True,index=index
-
                 )
             else:
                 batched_times_prev = torch.full((pred.shape[0],), self.ddim_timestep_seq[t-1], device=device, dtype=torch.long)
-                pred, x_0_pred = self.p_sample_ddim(
+                pred, x_0_pred, goal_pred, goal_x_0_pred = self.p_sample_ddim(
                     x=pred,
-                    pred_x_start_prev=x_0_pred,
+                    pred_x_start_prev=x_0_pred, 
+                    goal_x=goal_pred,
+                    goal_pred_x_start_prev=goal_x_0_pred,
                     t=batched_times,
                     t_prev=batched_times_prev,
                     batch=batch,index=index

@@ -13,7 +13,9 @@ from collections import defaultdict
 from models import *
 from models_bit_diff_causal_hierarchical import BitDiffPredictorTCN
 #from bit_diffusion_causal_hierarchical_globalgoal import GaussianBitDiffusion
-from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
+from bit_diffusion_causal_hierarchical_qwen_onlylora_25b import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_onlylora_7b import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_clip import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_minilm import GaussianBitDiffusion
 from ema import *
@@ -78,7 +80,6 @@ class TrainerTCN:
               val_batch_gens,
               device,
               num_workers,
-              writer,
               results_dir,
               actions_dict,
               goals_dict):
@@ -86,7 +87,7 @@ class TrainerTCN:
         # MODEL
         if self.prob:
             self.diffusion = self.diffusion.to(device)
-            if 1:#args.num_epochs != 100:
+            if args.num_epochs != 100:
                 self.diffusion.model.load_state_dict(torch.load(save_dir + '/epoch-' + str(args.epoch) + ".model"), strict=False)
             else:
                 args.epoch = -1
@@ -169,14 +170,14 @@ class TrainerTCN:
             # Logging
             print("[epoch %d]: epoch loss = %f,  acc = %f" % (epoch, epoch_loss / len(dataloader), float(correct) / total))
 
-            # acc
-            writer.add_scalar("training_accuracies/MoF_past", float(correct_past) / total_past, global_step=epoch)
-            writer.add_scalar("training_accuracies/MoF_future", float(correct_future) / total_future, global_step=epoch)
-            writer.add_scalar("training_accuracies/MoF_all", float(correct) / total, global_step=epoch)
+            # # acc
+            # writer.add_scalar("training_accuracies/MoF_past", float(correct_past) / total_past, global_step=epoch)
+            # writer.add_scalar("training_accuracies/MoF_future", float(correct_future) / total_future, global_step=epoch)
+            # writer.add_scalar("training_accuracies/MoF_all", float(correct) / total, global_step=epoch)
             
-            # loss
-            writer.add_scalar("training_losses/total_loss",  float(epoch_loss) / len(dataloader), global_step=epoch)
-            writer.add_scalar("training_losses/ce_loss", float(epoch_ce_loss) / len(dataloader), global_step=epoch)
+            # # loss
+            # writer.add_scalar("training_losses/total_loss",  float(epoch_loss) / len(dataloader), global_step=epoch)
+            # writer.add_scalar("training_losses/ce_loss", float(epoch_ce_loss) / len(dataloader), global_step=epoch)
         
  
 
@@ -200,14 +201,14 @@ class TrainerTCN:
                                                         args.sample_rate,
                                                         eval_mode=True)
 
-                        # Logging
-                        writer.add_scalar("testing_loss/ce_loss/obs_" + str(obs_perc), returned_metrics[0][-1], global_step=epoch)
-                        writer.add_scalar("testing_loss/total_loss/obs_" + str(obs_perc), returned_metrics[0][-2], global_step=epoch)
+                        # # Logging
+                        # writer.add_scalar("testing_loss/ce_loss/obs_" + str(obs_perc), returned_metrics[0][-1], global_step=epoch)
+                        # writer.add_scalar("testing_loss/total_loss/obs_" + str(obs_perc), returned_metrics[0][-2], global_step=epoch)
                         
-                        for res in returned_metrics:
-                            writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoF_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[1], global_step=epoch)
-                            writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[2], global_step=epoch)
-                            writer.add_scalar("testing_metrics_" + str(obs_perc) + "/Max_MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[3], global_step=epoch)
+                        # for res in returned_metrics:
+                        #     writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoF_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[1], global_step=epoch)
+                        #     writer.add_scalar("testing_metrics_" + str(obs_perc) + "/MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[2], global_step=epoch)
+                        #     writer.add_scalar("testing_metrics_" + str(obs_perc) + "/Max_MoC_obs_" + str(obs_perc) + "_pred_" + str(res[0]), res[3], global_step=epoch)
 
                     self.model.train()
 
@@ -395,7 +396,7 @@ class TrainerTCN:
             # ITERATE
             print("length: ", len(dataloader))
             for itr, sample_batched in enumerate(dataloader):
-                with open(f'/mnt/data-tmp/seulgi/causdiff/diff_results/darai/proposed/result_{itr}.txt', "w") as f:
+                with open(f'/home/hice1/skim3513/scratch/causdiff/diff_results/darai/proposed/result_{itr}.txt', "w") as f:
                     f.write("GroundTruth,Recognized\n")  # header
                     # print(itr, "##################")
                     # if itr % 100 != 0:
@@ -417,6 +418,8 @@ class TrainerTCN:
                     classes_tensor = classes_tensor.to(device)
                     mask_past_tensor = mask_past_tensor.to(device)
                     goal_tensor = goal_tensor.to(device)
+
+                    video_file_name = sample_batched[11]
 
                     # MASK
                     masks = []
@@ -450,8 +453,9 @@ class TrainerTCN:
                                 masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
                                 goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
                                 n_samples=args.num_samples,
-                                n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
+                                n_diffusion_steps=args.num_infr_diff_timesteps, index=itr, video_name=video_file_name,)
                         tcn_predictions = tcn_predictions.contiguous()
+                        print(tcn_predictions.shape)
                         loss = 0.
                         ce_loss = 0.
 
@@ -564,6 +568,7 @@ class TrainerTCN:
                 # MoC (Mean over Classes metric)
                 for i in range(len(actions_dict)):
                     if n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i] != 0:
+                        print("accuracy ", i, (float(n_T_classes_all_files[j, i]) / (n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i])))
                         acc += (float(n_T_classes_all_files[j, i]) / (n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i]))
                         n += 1
                     

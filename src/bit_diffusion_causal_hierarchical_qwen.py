@@ -21,7 +21,7 @@ from visualize import plot_intentions_2d_GSA, plot_intentions_2d_GS, save_matrix
 import random
 from causal_attention import CausalAttention
 from qwen_online_encoder import QwenVLOnlineEncoder
-from PIL import Image
+
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
@@ -249,7 +249,7 @@ class GaussianBitDiffusion(nn.Module):
             lora_dropout=0.05,
             target_modules=("q_proj","k_proj","v_proj","o_proj"),
             freeze_vision_tower=True,
-            freeze_mm_projector=True,
+            freeze_mm_projector=True,#False,
             max_side=448
         )
 
@@ -269,13 +269,14 @@ class GaussianBitDiffusion(nn.Module):
         if self.proj_diff is None:
             self.proj_diff = nn.Linear(Dd, out_dim, bias=False).to(diff_vecs.device)
 
-    def _info_nce_timewise(self, q, k_padded, mask=None, temperature=0.07):
+    def _info_nce_timewise(self, q, k, mask=None, temperature=0.07):
         """
         q, k: (B,T,D), 동일 시점끼리 positive, 배치 내 나머지는 negative
         mask: (B,T) 0/1 유효 마스크
         """
+        
         B,T,D = q.shape
-        k = k_padded[:, :T, :]
+        
         q = F.normalize(q, dim=-1)
         k = F.normalize(k, dim=-1)
 
@@ -285,7 +286,7 @@ class GaussianBitDiffusion(nn.Module):
         targets = torch.arange(B*T, device=q.device)
 
         if mask is not None:
-            m = mask[:, :T].reshape(B*T).bool()
+            m = mask.reshape(B*T).bool()
             idx = torch.nonzero(m, as_tuple=False).squeeze(1)
             
             logits = logits[idx][:, idx]
@@ -294,71 +295,6 @@ class GaussianBitDiffusion(nn.Module):
 
         loss = F.cross_entropy(logits, targets)
         return loss
-
-    def natural_key(self, s: str):
-        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
-
-    def _expand_first_paths_to_sequences(self, first_paths, stride=15,max_frames=0):
-        seq_batch = []
-        for p0 in first_paths:
-            d = os.path.dirname(p0)
-            bn = os.path.basename(p0)                 # 예: 01_2_00000.jpg
-            parts = bn.split('_')
-            if len(parts) < 3:
-                raise ValueError(f"Unexpected filename format: {bn}")
-            # '01_2_' 같은 prefix 키
-            prefix_key = f"{parts[0]}_{parts[1]}_"
-            limit = int(parts[2].replace('.jpg', ''))
-
-            # 모든 프레임 모으기 (여러 확장자 지원)
-            all_paths = []
-            for ext in ("*.jpg"):
-                all_paths.extend(glob.glob(os.path.join(d, f"{prefix_key}{ext}")))
-                all_paths.extend(glob.glob(os.path.join(d, f"{prefix_key}*{ext}")))
-            # 중복 제거 + 정렬
-            all_paths = sorted(list(set(all_paths)), key=self.natural_key)
-            all_paths = all_paths[:limit+1]
-            
-            if not all_paths:
-                raise FileNotFoundError(f"No frames for prefix {prefix_key} under {d}")
-
-            start_idx = 0
-            sel = all_paths[start_idx::max(1, stride)]
-            if max_frames and max_frames > 0:
-                sel = sel[:max_frames]
-
-            seq_batch.append(sel)
-
-        return seq_batch
-
-    def _resize(self, img, max_side=336):
-        # Qwen2-VL은 자동 리사이즈가 있긴 하지만, 학습안정/메모리 위해 미리 제한
-
-        w, h = img.size
-        s = max(w, h)
-        if s <= max_side:
-            return img
-        scale = max_side / float(s)
-        new_w, new_h = int(w*scale), int(h*scale)
-        return img.resize((new_w, new_h))
-
-    def _build_images_batch_from_paths(self, images_paths_batch, gap=0):
-        """
-        images_paths_batch[b][t] 가 다음 중 하나:
-        - '/path/to/a.jpg'
-        - '/path/a.jpg | /path/b.jpg'  (파이프 구분 → 가로 concat)
-        반환: images_batch (List[List[PIL.Image]]] (B,T)
-        """
-        images_batch = []
-        for seq in images_paths_batch:
-            imgs_T = []
-            for item in seq:
-                img = Image.open(item).convert("RGB")
-                img = self._resize(img)
-                imgs_T.append(img)
-            images_batch.append(imgs_T)
-        return images_batch
-
 
     def semantic_consistency_loss(self, subgoal_features, global_goal):
         """
@@ -499,16 +435,22 @@ class GaussianBitDiffusion(nn.Module):
         subgoal_seq = model_out_goal # (S x B x T x C)
         goal_repeat = subgoal_seq[-1] # (B x T x C)
 
-        seq_paths_batch = self._expand_first_paths_to_sequences(images_paths_batch, stride=15)
-        images_batch = self._build_images_batch_from_paths(seq_paths_batch)
         vlm_latents = self.qwen_enc(
-            images=images_batch,
+            images=images_paths_batch,
             global_intention=global_goal_texts,
             frame_indices=None, total_len=None, recent_subs_batch=None
         )  # (B,T,Dv)
         self._ensure_proj_heads(vlm_latents, goal_repeat)  # lazy init
-        q_vlm = self.proj_vlm(vlm_latents)                 # grad ON
-        k_diff = self.proj_diff(goal_repeat.detach())      # grad OFF
+        # if torch.rand((1)) < 0.5:
+        #     q_vlm = self.proj_vlm(vlm_latents)                 # grad ON
+        #     k_diff = self.proj_diff(goal_repeat.detach())      # grad OFF
+        #     #self.lambda_contrast = 0.01
+        # else:
+        #     q_vlm = self.proj_vlm(vlm_latents.detach())                 # grad OFF
+        #     k_diff = self.proj_diff(goal_repeat)      # grad ON
+        
+        q_vlm = self.proj_vlm(vlm_latents.detach())                 # grad OFF
+        k_diff = self.proj_diff(goal_repeat)      # grad ON
 
         valid = mask_all[-1].squeeze(-1).to(q_vlm.dtype)   # (B,T)
         temp = torch.exp(self.logit_scale).clamp(1/100.0, 100.0).detach()

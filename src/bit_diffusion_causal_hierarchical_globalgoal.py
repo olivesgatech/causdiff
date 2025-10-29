@@ -217,7 +217,7 @@ def causal_attention_summary(subgoal_seq: torch.Tensor) -> torch.Tensor:
 #     context = torch.stack(context, dim=1)  # (B, T, D)
 #     return context
 
-def encode_texts(texts, clip_model, device='cuda:1'):
+def encode_texts(texts, clip_model, device='cuda:0'):
     tokens = clip.tokenize(texts).to(device)
     with torch.no_grad():
         text_features = clip_model.encode_text(tokens)  # (N, 512)
@@ -226,7 +226,7 @@ def encode_texts(texts, clip_model, device='cuda:1'):
 
 def decode_clip_embedding_to_text(
     clip_embedding,
-    device='cuda:1',
+    device='cuda:0',
     features_dir="/home/hice1/skim3513/scratch/causdiff/datasets/darai/features_description_text",
     out_txt_path="/home/hice1/skim3513/scratch/causdiff/datasets/darai/out.txt", topk=5
 ):
@@ -476,7 +476,7 @@ def ce_loss_with_clip_head(
 
 
 # # Main function: input = CLIP vector → output = "goal_text, action_text"
-# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda:1'):
+# def decode_clip_embedding_to_text(clip_embedding, clip_model, device='cuda:0'):
 #     if clip_embedding.dim() == 1:
 #         clip_embedding = clip_embedding.unsqueeze(0)  # (1, 512)
 #     clip_embedding = F.normalize(clip_embedding.float(), dim=-1)  # normalize
@@ -592,7 +592,7 @@ class GaussianBitDiffusion(nn.Module):
         
         super().__init__()
         # self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda:1')
+        # self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2").to('cuda:0')
         # self.text_encoder.eval()  # inference only
         
         print(f'Num classes : {num_classes}')
@@ -681,7 +681,7 @@ class GaussianBitDiffusion(nn.Module):
         S, B, T, D = subgoal_features.shape
         
         # Get global goal features (only once)
-        #with torch.amp.autocast('cuda:1'):
+        #with torch.amp.autocast('cuda:0'):
             #global_goal_classes = global_goal.argmax(dim=-1)  # (B,)
             #global_goal_texts = [f"action {idx.item()}" for idx in global_goal_classes]
             #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
