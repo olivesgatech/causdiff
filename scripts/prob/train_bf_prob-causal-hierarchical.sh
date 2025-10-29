@@ -18,7 +18,7 @@ OPTS="--model_dir=/home/hice1/skim3513/scratch/causdiff/model/bf/diff \
       --diff_obj pred_x0 \
       --action=train \
       --ds=bf \
-      --bz=1 \
+      --bz=2 \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
       --num_epochs=100 \

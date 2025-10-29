@@ -30,7 +30,7 @@ parser.add_argument('--load_type', default='numpy')
 
 # run params
 parser.add_argument('--debug', action='store_true')
-parser.add_argument('--num_workers', type=int, default=16)
+parser.add_argument('--num_workers', type=int, default=2)
 parser.add_argument('--action', default='train')
 
 # optimization 

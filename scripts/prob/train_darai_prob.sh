@@ -29,8 +29,8 @@ OPTS="--model_dir=/home/hice1/skim3513/scratch/GTDA/model/darai/diff \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
       --num_highlevel_classes=512 \
-      --date=202508041900 \
-      --sample_rate=3"
+      --date=202510201838 \
+      --sample_rate=15"
 
 python ./src/main.py $OPTS
 

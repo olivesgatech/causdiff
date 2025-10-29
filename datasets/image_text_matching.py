@@ -82,7 +82,7 @@ def main():
     else:
         labels = L2_LABELS
         # Use OpenCLIP to embed label texts
-        device = "cuda:1" if os.environ.get("CUDA_VISIBLE_DEVICES", "") else "cpu"
+        device = "cuda:0" if os.environ.get("CUDA_VISIBLE_DEVICES", "") else "cpu"
         label_embs = embed_labels_openclip(labels, device=device)  # [C,512]
 
     # cosine similarity

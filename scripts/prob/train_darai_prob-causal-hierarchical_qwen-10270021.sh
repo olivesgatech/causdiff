@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-OPTS="--model_dir=/home/hice1/skim3513/scratch/causdiff/model/darai/diff \
-      --results_dir=/home/hice1/skim3513/scratch/causdiff/model/darai/diff \
+OPTS="--model_dir=/home/hice1/skim3513/AIFirst_F24_data/darai/models/causdiff\
+      --results_dir=/home/hice1/skim3513/AIFirst_F24_data/darai/models/causdiff \
       --mapping_file=./datasets/darai/mapping_l3_changed.txt \
       --mapping_coarse_file=./datasets/darai/mapping_l1_changed.txt \
       --vid_list_file_test=./datasets/darai/splits/test_split.txt \
@@ -18,20 +18,20 @@ OPTS="--model_dir=/home/hice1/skim3513/scratch/causdiff/model/darai/diff \
       --diff_obj pred_x0 \
       --action=train \
       --ds=bf \
-      --bz=2 \
+      --bz=8 \
       --lr=0.0005 \
       --model=bit-diff-pred-tcn \
       --num_epochs=100 \
-      --epoch=85 \
+      --epoch=75 \
       --num_stages=5 \
       --obs_stages=0 \
       --ant_stages=5 \
       --num_layers=9 \
       --channel_dropout_prob=0.4 \
       --num_highlevel_classes=512 \
-      --date=202510191502 \
-      --sample_rate=3"
+      --date=202510270021 \
+      --sample_rate=15"
 
-python ./src/main-causal_hierarchical.py $OPTS
+python ./src/main-causal_hierarchical_onlylora_7b.py $OPTS
 
 

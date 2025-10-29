@@ -31,7 +31,7 @@ def main():
         print("[WARN] 입력 문장이 없습니다.")
         return
 
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
     tokenizer = CLIPTokenizer.from_pretrained(args.model)
     model = CLIPModel.from_pretrained(args.model).to(device)
     model.eval()

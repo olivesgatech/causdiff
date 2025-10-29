@@ -6,7 +6,7 @@ import os
 
 class LLMConditioner(nn.Module):
     def __init__(self, lm_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-                 prefix_len=16, r=4, alpha=16, dropout=0.05, fourbit=True, device_map={"": "cuda:1"}):
+                 prefix_len=16, r=4, alpha=16, dropout=0.05, fourbit=True, device_map={"": "cuda:0"}):
         super().__init__()
         self.tok = AutoTokenizer.from_pretrained(lm_name, use_fast=True)
         if self.tok.pad_token is None:
@@ -23,7 +23,7 @@ class LLMConditioner(nn.Module):
             self.lm = prepare_model_for_kbit_training(self.lm)
         else:
             #self.lm = AutoModelForCausalLM.from_pretrained(lm_name, device_map=device_map)
-            self.lm = AutoModelForCausalLM.from_pretrained(lm_name, quantization_config=bnb, device_map={"": "cuda:1"})
+            self.lm = AutoModelForCausalLM.from_pretrained(lm_name, quantization_config=bnb, device_map={"": "cuda:0"})
 
         self.lm.gradient_checkpointing_enable()
 

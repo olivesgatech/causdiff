@@ -20,7 +20,7 @@ def render_l2_from_subgoal_embeddings(
     make_legend=True,         # Whether to save the legend image
     openclip_arch="ViT-B-32", # OpenCLIP model for text embeddings (if label_embs is None)
     openclip_ckpt="openai",
-    device="cuda:1"               # "cuda" or "cpu"; auto if None
+    device="cuda:0"               # "cuda" or "cpu"; auto if None
 ):
     """
     Generate:
@@ -67,7 +67,7 @@ def render_l2_from_subgoal_embeddings(
             ) from e
 
         if device is None:
-            device = "cuda:1" if (os.environ.get("CUDA_VISIBLE_DEVICES") or
+            device = "cuda:0" if (os.environ.get("CUDA_VISIBLE_DEVICES") or
                                 (torch.cuda.is_available())) else "cpu"
 
         model, _, _ = open_clip.create_model_and_transforms(openclip_arch, pretrained=openclip_ckpt)

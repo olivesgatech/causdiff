@@ -22,7 +22,7 @@ prompt_templates = [
 "A cooking-related scene: {}."
 ]
 
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 model, _, preprocess = open_clip.create_model_and_transforms(
     'ViT-L-14', pretrained='openai'
