@@ -27,6 +27,7 @@ from datetime import datetime
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start", "pred_goal_noise", "pred_goal_start"])
 
+UTKINECTS_GOAL = "the intention is to do the daily action"
 
 BREAKFAST_GOAL = {
     0: "the goal is to prepare scrambled eggs for breakfast",
@@ -355,15 +356,17 @@ class GaussianBitDiffusion(nn.Module):
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # sample: goal
-        _, T, _ = gt_goal_one_hot.shape
+        B, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
         #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = UTKINECTS_GOAL
 
         # CLIP Tokenization
         goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
         goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        if goal_features.shape[0] != B:
+            goal_features = goal_features.expand(B, -1)
 
         # 2. 확장 (time axis 맞추기)
         goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
@@ -534,27 +537,30 @@ class GaussianBitDiffusion(nn.Module):
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
         #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = UTKINECTS_GOAL
         
         ## CLIP tokenization
-        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_tokens = clip.tokenize(global_goal_texts).to(x.device)
         goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
         #goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
-
+        if goal_features.shape[0] != B:
+            goal_features = goal_features.expand(B, -1)
         self_cond_goal = self.attn(goal_pred_x_start_prev, goal_features)
-
+        
         _, infer_goal = self.goalmodel(
             x=goal_t, 
             t=t, 
             stage_masks=stage_masks,
             obs_cond=obs,
-            self_cond = self_cond_goal,
+            self_cond = self_cond_goal,index=index
         )
         # ################### npy save ###########################################
-        # save_dir = "outputs/infer_goal"
-        # os.makedirs(save_dir, exist_ok=True)
-        # ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # np.save(os.path.join(save_dir, f"infer_goal_t{int(t[0])}_{ts}.npy"), infer_goal.detach().to('cpu').numpy().astype('float32', copy=False))
+        # if t[0] == 0:
+        #     save_dir = "outputs/utkinects/infer_goal"
+        #     os.makedirs(save_dir, exist_ok=True)
+        #     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #     np.save(os.path.join(save_dir, f"infer_goal_t{int(t[0])}_{ts}.npy"), infer_goal.detach().to('cpu').numpy().astype('float32', copy=False))
         # ################### npy save end ###########################################
 
         # def _slug(s: str) -> str:
@@ -564,10 +570,9 @@ class GaussianBitDiffusion(nn.Module):
         #     s = re.sub(r"\s+", "_", s)        # 공백 -> _
         #     return s[:60] if len(s) > 60 else s
 
-        # goal_tag = _slug(global_goal_texts[0])
-        # txt_path = os.path.join("outputs/phrases", f"phrases_{goal_tag}_{ts}.txt")
-
         # if t[0] == 0:
+        #     goal_tag = _slug(global_goal_texts[0])
+        #     txt_path = os.path.join("outputs/utkinects/phrases", f"phrases_{goal_tag}_{ts}.txt")
         #     phrases_bt = self.qwen_enc.generate_phrases(
         #         images=video_file,           # List[List[PIL.Image]]
         #         global_intention=global_goal_texts[0], # str or List[str]
@@ -584,7 +589,7 @@ class GaussianBitDiffusion(nn.Module):
         infer_goal = infer_goal[-1] # (25, 106, 512)
         self_cond = torch.cat([self_cond, infer_goal], dim=2)
         
-        ##################################################################################
+        # ##################################################################################
         
         # PRED
         model_output,model_feature = self.model(
@@ -592,8 +597,16 @@ class GaussianBitDiffusion(nn.Module):
             t=t,
             stage_masks=stage_masks,
             obs_cond=obs,
-            self_cond=self_cond,
+            self_cond=self_cond,index=index
         )
+        ################### npy save ###########################################
+        # if t[0] == 0:
+        #     save_dir = "outputs/utkinects/infer_action"
+        #     os.makedirs(save_dir, exist_ok=True)
+        #     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #     #np.save(os.path.join(save_dir, f"infer_action_feature_t{int(t[0])}_{ts}.npy"), model_feature.detach().to('cpu').numpy().astype('float32', copy=False))
+        #     np.save(os.path.join(save_dir, f"infer_action_t{int(t[0])}_{ts}.npy"), model_output.detach().to('cpu').numpy().astype('float32', copy=False))
+        ################### npy save end ###########################################
         model_output = model_output[-1]
         
         if self.objective == "pred_noise":
@@ -672,7 +685,8 @@ class GaussianBitDiffusion(nn.Module):
         )
 
         # Compute mean and var
-        noise_goal = torch.randn_like(gt_goal_one_hot) 
+        #noise_goal = torch.randn_like(gt_goal_one_hot) 
+        noise_goal = torch.randn((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
         mean_pred_goal = (
                 pred_goal_start * torch.sqrt(alpha_bar_prev_goal)
                 + torch.sqrt(1 - alpha_bar_prev_goal - sigma_goal ** 2) * pred_goal_noise
@@ -694,7 +708,8 @@ class GaussianBitDiffusion(nn.Module):
         # INPUT
         device = self.betas.device
         x_0_pred = torch.zeros_like(batch["x_0"]).to(batch["x_0"].device)  # only used for shape
-        goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
+        #goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
+        goal_x_0_pred = torch.zeros((batch["goal_one_hot"].shape[0], batch["goal_one_hot"].shape[1], 512), device=batch["goal_one_hot"].device)
     
         # INIT PREDICTION (normal distr noise)
         pred = torch.randn_like(x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
@@ -763,7 +778,7 @@ class GaussianBitDiffusion(nn.Module):
         x_0 = repeat(x_0, "b t c -> (s b) t c ", s=n_samples)
         mask_past = repeat(mask_past, "b t 1 -> (s b) t c", s=n_samples, c=obs.shape[-1])
         masks_stages = [repeat(mask.to(torch.bool), "b t c -> (s b) t c", s=n_samples) for mask in masks_stages]
-        goal = repeat(goal, "b c -> (s b) c", s=n_samples)
+        #goal = repeat(goal, "b c -> (s b) c", s=n_samples)
         gt_goal_one_hot = repeat(gt_goal_one_hot, "b t c -> (s b) t c", s=n_samples)
         
         # Sample from the diffusion model
@@ -774,13 +789,15 @@ class GaussianBitDiffusion(nn.Module):
                 "obs": obs,
                 "mask_past": mask_past.to(torch.bool),
                 "mask_all": masks_stages,
-                "goal": goal,
+                "goal": None,#goal,
                 "goal_one_hot":gt_goal_one_hot,
                 "video_file": video_name,
             },
             init_rand=None,
             n_diffusion_steps=n_diffusion_steps,index=index
         )
+
+        #save_matrix_npy(np.asarray(x_out.cpu()), index=index)
           
         # Return
         init_noise = init_noise[0]

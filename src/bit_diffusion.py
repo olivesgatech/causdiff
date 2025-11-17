@@ -809,8 +809,8 @@ class GaussianBitDiffusion(nn.Module):
             obs_cond=obs,
             self_cond=self_cond
         )
-        if int(t.item()) == 0:
-            save_matrix_npy(np.asarray(model_output.cpu()), index=index)
+        # if int(t[0].item()) == 0:
+        #     save_matrix_npy(np.asarray(model_output.cpu()), index=index)
         model_output = model_output[-1]
         #action_erank_and_spectrum(model_feature.cpu(),f'{t}_model')
         
@@ -945,51 +945,51 @@ class GaussianBitDiffusion(nn.Module):
         mask_past = repeat(mask_past, "b t 1 -> (s b) t c", s=n_samples, c=obs.shape[-1])
         masks_stages = [repeat(mask.to(torch.bool), "b t c -> (s b) t c", s=n_samples) for mask in masks_stages]
 
-        # Sample from the diffusion model
-        import time
+        # # Sample from the diffusion model
+        # import time
 
-        warmup = 10
-        num_iterations = 100
-        print("warmup")
-        print(x_0.shape)
-        for _ in range(warmup):
-            _,_ = self.p_sample_loop_with_input(
-                batch={
-                    "x_0": x_0,  # only used for shape
-                    "obs": obs,
-                    "mask_past": mask_past.to(torch.bool),
-                    "mask_all": masks_stages
-                },
-                init_rand=None,
-                n_diffusion_steps=n_diffusion_steps
-            )
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-        print("warmup ends")
-        times = []
-        for _ in range(num_iterations):
-            start_time = time.perf_counter()
+        # warmup = 10
+        # num_iterations = 100
+        # print("warmup")
+        # print(x_0.shape)
+        # for _ in range(warmup):
+        #     _,_ = self.p_sample_loop_with_input(
+        #         batch={
+        #             "x_0": x_0,  # only used for shape
+        #             "obs": obs,
+        #             "mask_past": mask_past.to(torch.bool),
+        #             "mask_all": masks_stages
+        #         },
+        #         init_rand=None,
+        #         n_diffusion_steps=n_diffusion_steps
+        #     )
+        #     if torch.cuda.is_available():
+        #         torch.cuda.synchronize()
+        # print("warmup ends")
+        # times = []
+        # for _ in range(num_iterations):
+        #     start_time = time.perf_counter()
             
-            _,_ = self.p_sample_loop_with_input(
-                batch={
-                    "x_0": x_0,  # only used for shape
-                    "obs": obs,
-                    "mask_past": mask_past.to(torch.bool),
-                    "mask_all": masks_stages
-                },
-                init_rand=None,
-                n_diffusion_steps=n_diffusion_steps
-            )
+        #     _,_ = self.p_sample_loop_with_input(
+        #         batch={
+        #             "x_0": x_0,  # only used for shape
+        #             "obs": obs,
+        #             "mask_past": mask_past.to(torch.bool),
+        #             "mask_all": masks_stages
+        #         },
+        #         init_rand=None,
+        #         n_diffusion_steps=n_diffusion_steps
+        #     )
             
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+        #     if torch.cuda.is_available():
+        #         torch.cuda.synchronize()
             
-            end_time = time.perf_counter()
-            times.append(end_time - start_time)
+        #     end_time = time.perf_counter()
+        #     times.append(end_time - start_time)
         
-        avg_time = np.mean(times)
-        std_time = np.std(times)
-        print(f"Average: {avg_time*1000:.2f}ms, Std: {std_time*1000:.2f}ms")
+        # avg_time = np.mean(times)
+        # std_time = np.std(times)
+        # print(f"Average: {avg_time*1000:.2f}ms, Std: {std_time*1000:.2f}ms")
                 
         x_out, init_noise = self.p_sample_loop_with_input(
             batch={
@@ -1001,7 +1001,8 @@ class GaussianBitDiffusion(nn.Module):
             init_rand=None,
             n_diffusion_steps=n_diffusion_steps,index=index
         )
-          
+        #save_matrix_npy(np.asarray(x_out.cpu()), index=index)
+        
         # Return
         init_noise = init_noise[0]
         if return_noise:

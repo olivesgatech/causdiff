@@ -12,8 +12,8 @@ from collections import defaultdict
 # models
 from models import *
 from models_bit_diff import BitDiffPredictorTCN
-#from bit_diffusion import GaussianBitDiffusion
-from bit_diffusion_globalgoal import GaussianBitDiffusion
+from bit_diffusion import GaussianBitDiffusion
+#from bit_diffusion_globalgoal import GaussianBitDiffusion
 from ema import *
 
 # utils
@@ -81,6 +81,10 @@ class TrainerTCN:
         # MODEL
         if self.prob:
             self.diffusion = self.diffusion.to(device)
+            if args.num_epochs != 100:
+                self.diffusion.model.load_state_dict(torch.load(save_dir + '/epoch-' + str(args.epoch) + ".model"), strict=False)
+            else:
+                args.epoch = -1
             self.diffusion.train()
             
             self.ema_diffusion = EMA(model=self.diffusion,
@@ -102,7 +106,7 @@ class TrainerTCN:
 
         # TRAIN
         print('Start Training...')
-        for epoch in range(args.num_epochs + 1):
+        for epoch in range(args.epoch+1, args.num_epochs + 1):
             epoch_loss = 0
             epoch_ce_loss = 0
         
@@ -404,7 +408,7 @@ class TrainerTCN:
             # ITERATE
             print("length: ", len(dataloader))
             for itr, sample_batched in enumerate(dataloader):
-                with open(f'/mnt/data-tmp/seulgi/causdiff/diff_results/darai/goal/result_{itr}.txt', "w") as f:
+                with open(f'/home/hice1/skim3513/scratch/causdiff/diff_results/darai/baseline/result_{itr}.txt', "w") as f:
                     f.write("GroundTruth,Recognized\n")  # heade
                     # print(itr, "##################")
                     # if itr % 100 != 0:
@@ -456,7 +460,7 @@ class TrainerTCN:
                                 mask_past = rearrange(mask_past_tensor, 'b c t -> b t c'),
                                 masks_stages = [rearrange(mask_tensor, 'b c t -> b t c') for mask_tensor in masks],
                                 n_samples=args.num_samples,
-                                goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
+                                #goal=goal_tensor, gt_goal_one_hot=rearrange(goals_one_hot_tensor, 'b c t -> b t c'),
                                 n_diffusion_steps=args.num_infr_diff_timesteps, index=itr)
                         tcn_predictions = tcn_predictions.contiguous()
                         loss = 0.
@@ -465,9 +469,14 @@ class TrainerTCN:
 
                     ''' ACCURACIES '''
                     # META INFO
-                    init_vid_len = sample_batched[-4]
-                    meta_dict = sample_batched[-3]
-                    file_names = meta_dict['file_names']    
+                    try:
+                        init_vid_len = sample_batched[-5]
+                        meta_dict = sample_batched[-4]
+                        file_names = meta_dict['file_names']    
+                    except:
+                        init_vid_len = sample_batched[-4]
+                        meta_dict = sample_batched[-3]
+                        file_names = meta_dict['file_names']   
 
                     # FINAL PRED AND GT
                     gt_content = classes_all_tensor[0].numpy()

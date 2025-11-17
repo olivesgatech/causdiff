@@ -111,7 +111,7 @@ class QwenVLOnlineEncoder(nn.Module):
 
     def __init__(
         self,
-        model_id: str = "Qwen/Qwen2.5-VL-3B-Instruct",
+        model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct",
         device: str = "cuda",
         torch_dtype: torch.dtype = torch.bfloat16,
         cache_dir: Optional[str] = None,
@@ -128,6 +128,7 @@ class QwenVLOnlineEncoder(nn.Module):
         max_side: int = 336,
         enable_grad_ckpt: bool = False,
         attn_impl: Optional[str] = None,  # e.g., "flash_attention_2" if supported
+        
     ):
         super().__init__()
         self.device = device
@@ -150,6 +151,7 @@ class QwenVLOnlineEncoder(nn.Module):
 
         # Attach LoRA
         if enable_lora:
+            self.finetune = True
             assert get_peft_model is not None, "peft가 설치되어 있어야 합니다."
             peft_cfg = LoraConfig(
                 r=lora_rank,
@@ -174,6 +176,8 @@ class QwenVLOnlineEncoder(nn.Module):
                     if "lora_" in name:
                         for p in module.parameters():
                             p.requires_grad = enable
+        else:
+            self.finetune = False
 
         # Freeze vision tower / projector if requested
         if not freeze_vision_tower:
@@ -202,7 +206,10 @@ class QwenVLOnlineEncoder(nn.Module):
         recent_k=0,
         use_autocast=True,
     ):
-        self.model.train()
+        if self.finetune == False:
+            self.model.eval()
+        else:
+            self.model.train()
         device = self.device
 
         B = len(images)
@@ -237,7 +244,7 @@ class QwenVLOnlineEncoder(nn.Module):
                 flat_imgs.append(img)
                 flat_prompts.append(
                     f"Global intention: {gi_list[b]}. Frame {t}/{total_list[b]}. "
-                    "Do not repeat the Global goal."
+                    "Do not repeat the Global intention."
                 )
 
         # 미니배치로 인코딩
@@ -316,7 +323,7 @@ class QwenVLOnlineEncoder(nn.Module):
         frame_indices=None,
         total_len=None,
         # 디코딩/품질 옵션
-        max_new_tokens=12,              # <= 8 words 보장용 여유 토큰
+        max_new_tokens=1200,              # <= 8 words 보장용 여유 토큰
         do_sample=False,                # 재현성 우선이면 False, 다양성 원하면 True + top_p/temperature
         top_p=0.9,
         temperature=0.7,
@@ -372,7 +379,7 @@ class QwenVLOnlineEncoder(nn.Module):
                 # 시스템/유저 프롬프트: 학습 때와 동일한 메시지 스타일
                 msgs = [
                     {"role": "system", "content": [
-                        {"type": "text", "text": "Output a short fine-grained intention (<=8 words) based only on visible evidence."}
+                        {"type": "text", "text": "Output a fine-grained intention (>=20 words) based only on visible evidence."}
                     ]},
                     {"role": "user", "content": [
                         {"type": "image", "image": "<image-placeholder>"},

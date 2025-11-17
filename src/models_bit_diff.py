@@ -369,7 +369,7 @@ class BitDiffPredictorTCN(nn.Module):
             args.num_stages,
             args.num_layers,
             args.model_dim,
-            args.input_dim + 2 * args.num_classes + int(args.num_highlevel_classes),
+            args.input_dim + 2 * args.num_classes, #+ int(args.num_highlevel_classes),
             args.num_classes,
             args.channel_dropout_prob,
             args.use_features,

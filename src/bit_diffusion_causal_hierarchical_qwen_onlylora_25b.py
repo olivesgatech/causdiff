@@ -59,6 +59,8 @@ SALADS_GOAL = {
     4: "Action start",
 }
 
+UTKINECTS_GOAL = "the intention is to do the daily action"
+
 class DiffusionModel(nn.Module):
     """
     Template model for the diffusion process
@@ -209,11 +211,11 @@ class GaussianBitDiffusion(nn.Module):
         
 
         self.qwen_enc = QwenVLOnlineEncoder(
-            model_id="Qwen/Qwen2.5-VL-3B-Instruct",
+            model_id="Qwen/Qwen2.5-VL-7B-Instruct",
             device="cuda",
             torch_dtype=torch.bfloat16,
             cache_dir="/home/hice1/skim3513/scratch/causdiff/hf_cache",
-            lora_rank=8,
+            lora_rank=4, #8
             lora_alpha=8,
             lora_dropout=0.05,
             target_modules=("q_proj","k_proj","v_proj","o_proj"),
@@ -223,7 +225,8 @@ class GaussianBitDiffusion(nn.Module):
         )
 
         # === NEW: 프로젝션 헤드 & 로짓 스케일 (게으른 초기화) ===
-        self.proj_vlm = nn.Linear(2048, 512, bias=False)
+        self.proj_vlm = nn.Linear(3584, 512, bias=False) #2048
+        #self.proj_vlm = nn.Linear(2048, 512, bias=False)
         self.proj_diff = nn.Linear(512, 512, bias=False)
         self.logit_scale = nn.Parameter(torch.tensor(3.0))  # CLIP-style; exp(3)≈20
         self.lambda_contrast = 1#0.5
@@ -356,15 +359,17 @@ class GaussianBitDiffusion(nn.Module):
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # sample: goal
-        _, T, _ = gt_goal_one_hot.shape
+        B, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
         #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
-
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = UTKINECTS_GOAL
 
         # CLIP Tokenization
         goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
         goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
+        if goal_features.shape[0] != B:
+            goal_features = goal_features.expand(B, -1)
 
         # 2. 확장 (time axis 맞추기)
         goal_start = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
@@ -535,12 +540,15 @@ class GaussianBitDiffusion(nn.Module):
         _, T, _ = gt_goal_one_hot.shape
         global_goal_classes = gt_goal_one_hot[:,-1].argmax(dim=-1)  # (B,)
         #global_goal_texts = [BREAKFAST_GOAL[idx.item()] for idx in global_goal_classes]
-        global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        #global_goal_texts = [DARAI_GOAL[idx.item()] for idx in global_goal_classes]
+        global_goal_texts = UTKINECTS_GOAL
         
         ## CLIP tokenization
-        goal_tokens = clip.tokenize(global_goal_texts).to(gt_goal.device)
+        goal_tokens = clip.tokenize(global_goal_texts).to(x.device)
         goal_features = self.clip.encode_text(goal_tokens)  # (B, D_clip)
         #goal_t = goal_features.unsqueeze(1).expand(-1, T, -1)  # (B, T, D_clip)
+        if goal_features.shape[0] != B:
+            goal_features = goal_features.expand(B, -1)
 
         self_cond_goal = self.attn(goal_pred_x_start_prev, goal_features)
 
@@ -655,7 +663,8 @@ class GaussianBitDiffusion(nn.Module):
         )
 
         # Compute mean and var
-        noise_goal = torch.randn_like(gt_goal_one_hot) 
+        #noise_goal = torch.randn_like(gt_goal_one_hot) 
+        noise_goal = torch.randn((gt_goal_one_hot.shape[0], gt_goal_one_hot.shape[1], 512), device=gt_goal_one_hot.device)
         mean_pred_goal = (
                 pred_goal_start * torch.sqrt(alpha_bar_prev_goal)
                 + torch.sqrt(1 - alpha_bar_prev_goal - sigma_goal ** 2) * pred_goal_noise
@@ -677,8 +686,9 @@ class GaussianBitDiffusion(nn.Module):
         # INPUT
         device = self.betas.device
         x_0_pred = torch.zeros_like(batch["x_0"]).to(batch["x_0"].device)  # only used for shape
-        goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
-    
+        #goal_x_0_pred = torch.zeros_like(batch["goal_one_hot"]).to(batch["goal_one_hot"].device)  # only used for shape
+        goal_x_0_pred = torch.zeros((batch["goal_one_hot"].shape[0], batch["goal_one_hot"].shape[1], 512), device=batch["goal_one_hot"].device)
+
         # INIT PREDICTION (normal distr noise)
         pred = torch.randn_like(x_0_pred, device=device) if init_rand is None else init_rand  # BS x T x C
         init_noise = pred.clone()
@@ -746,7 +756,7 @@ class GaussianBitDiffusion(nn.Module):
         x_0 = repeat(x_0, "b t c -> (s b) t c ", s=n_samples)
         mask_past = repeat(mask_past, "b t 1 -> (s b) t c", s=n_samples, c=obs.shape[-1])
         masks_stages = [repeat(mask.to(torch.bool), "b t c -> (s b) t c", s=n_samples) for mask in masks_stages]
-        goal = repeat(goal, "b c -> (s b) c", s=n_samples)
+        #goal = repeat(goal, "b c -> (s b) c", s=n_samples)
         gt_goal_one_hot = repeat(gt_goal_one_hot, "b t c -> (s b) t c", s=n_samples)
         
         # Sample from the diffusion model
@@ -757,7 +767,7 @@ class GaussianBitDiffusion(nn.Module):
                 "obs": obs,
                 "mask_past": mask_past.to(torch.bool),
                 "mask_all": masks_stages,
-                "goal": goal,
+                "goal": None,#goal,
                 "goal_one_hot":gt_goal_one_hot,
                 "video_file": video_name,
             },

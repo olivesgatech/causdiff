@@ -14,6 +14,8 @@ from models import *
 from models_bit_diff_causal_hierarchical import BitDiffPredictorTCN
 #from bit_diffusion_causal_hierarchical_globalgoal import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_qwen_onlylora import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_onlylora_7b_without_ft import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_without_vlm import GaussianBitDiffusion
 from bit_diffusion_causal_hierarchical_qwen_onlylora_7b import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_clip import GaussianBitDiffusion
@@ -87,7 +89,7 @@ class TrainerTCN:
         # MODEL
         if self.prob:
             self.diffusion = self.diffusion.to(device)
-            if 1:#args.num_epochs != 100:
+            if args.num_epochs != 100:
                 self.diffusion.model.load_state_dict(torch.load(save_dir + '/epoch-' + str(args.epoch) + ".model"), strict=False)
             else:
                 args.epoch = -1
@@ -503,8 +505,10 @@ class TrainerTCN:
 
                     # COMPUTE EVAL METRICS
                     past_len = int(obs_perc * init_vid_len)  # observation length
+                    
                     for i in range(len(eval_percentages)):
-                        
+                        # txt_path = os.path.join("outputs/mocs", f"moc_{itr}_{i}.txt")
+                        # with open(txt_path, "w", encoding="utf-8") as g:
                         eval_perc = eval_percentages[i]
                         eval_len = int((eval_perc + obs_perc) * init_vid_len)
 
@@ -513,7 +517,7 @@ class TrainerTCN:
                                 gt_content, 
                                 tcn_fin_prediction[:eval_len],
                                 past_len,
-                                actions_dict
+                                actions_dict, f
                             )
                             n_T_classes_all_files[i] += classes_n_T
                             n_F_classes_all_files[i] += classes_n_F
@@ -543,6 +547,9 @@ class TrainerTCN:
                                 # choose the max one
                                 all_pred = classes_n_T + classes_n_F
                                 moc = np.mean(classes_n_T[all_pred != 0] / (classes_n_T[all_pred != 0] + classes_n_F[all_pred != 0]))
+
+                                # line = f"batch: {s}\taccuracy: {moc}"
+                                # g.write(line + "\n")
                                 
                                 if moc > max_moc:
                                     max_moc = moc   

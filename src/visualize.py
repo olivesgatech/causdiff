@@ -25,7 +25,7 @@ from matplotlib.cm import get_cmap
 from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D
 
-def save_matrix_npy(matrix: np.ndarray, index=0, filename='./src/output_proposed_goal/'):
+def save_matrix_npy(matrix: np.ndarray, index=0, filename='./outputs/nturgbd/baseline_20/'):
     """
     Save a matrix of shape (S, 1, T, D) into .npy format.
 
@@ -35,10 +35,10 @@ def save_matrix_npy(matrix: np.ndarray, index=0, filename='./src/output_proposed
     """
     if not isinstance(matrix, np.ndarray):
         raise TypeError("Input must be a numpy ndarray.")
-    if matrix.ndim != 4:
+    if matrix.ndim != 4 and matrix.ndim != 3:
         raise ValueError(f"Expected a 4D array of shape (S, 1, T, D), got shape {matrix.shape}")
 
-    np.save(filename+str(index)+'.png', matrix)
+    np.save(filename+str(index), matrix)
     print(f"Saved matrix with shape {matrix.shape} to {filename}")
 
 

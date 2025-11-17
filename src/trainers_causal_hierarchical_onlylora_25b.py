@@ -13,8 +13,10 @@ from collections import defaultdict
 from models import *
 from models_bit_diff_causal_hierarchical import BitDiffPredictorTCN
 #from bit_diffusion_causal_hierarchical_globalgoal import GaussianBitDiffusion
-from bit_diffusion_causal_hierarchical_qwen_onlylora_25b import GaussianBitDiffusion
-#from bit_diffusion_causal_hierarchical_qwen_onlylora_7b import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_onlylora import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_onlylora_25b_freeze import GaussianBitDiffusion
+#from bit_diffusion_causal_hierarchical_qwen_onlylora_25b import GaussianBitDiffusion
+from bit_diffusion_causal_hierarchical_qwen_onlylora_25b_darail2 import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_qwen import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_clip import GaussianBitDiffusion
 #from bit_diffusion_causal_hierarchical_minilm import GaussianBitDiffusion
@@ -358,8 +360,12 @@ class TrainerTCN:
             if self.prob:
                 max_n_T_classes_all_files = np.zeros((len(eval_percentages), len(actions_dict)))
                 max_n_F_classes_all_files = np.zeros((len(eval_percentages), len(actions_dict)))
-          
 
+            num_samples = 5
+            per_sample_T = np.zeros((num_samples, len(eval_percentages), len(actions_dict)), dtype=np.float64)
+            per_sample_F = np.zeros((num_samples, len(eval_percentages), len(actions_dict)), dtype=np.float64)
+            top1_T = np.zeros((len(eval_percentages), len(actions_dict)), dtype=np.float64)
+            top1_F = np.zeros((len(eval_percentages), len(actions_dict)), dtype=np.float64)
             # EVAL
             loss, ce_loss = 0, 0          
             dataloader = DataLoader(
@@ -455,7 +461,7 @@ class TrainerTCN:
                                 n_samples=args.num_samples,
                                 n_diffusion_steps=args.num_infr_diff_timesteps, index=itr, video_name=video_file_name,)
                         tcn_predictions = tcn_predictions.contiguous()
-                        print(tcn_predictions.shape)
+                        
                         loss = 0.
                         ce_loss = 0.
 
@@ -499,7 +505,10 @@ class TrainerTCN:
 
                     # COMPUTE EVAL METRICS
                     past_len = int(obs_perc * init_vid_len)  # observation length
+                    
                     for i in range(len(eval_percentages)):
+                        # txt_path = os.path.join("outputs/mocs", f"moc_{itr}_{i}.txt")
+                        # with open(txt_path, "w", encoding="utf-8") as g:
                         eval_perc = eval_percentages[i]
                         eval_len = int((eval_perc + obs_perc) * init_vid_len)
 
@@ -508,14 +517,12 @@ class TrainerTCN:
                                 gt_content, 
                                 tcn_fin_prediction[:eval_len],
                                 past_len,
-                                actions_dict
+                                actions_dict, f
                             )
                             n_T_classes_all_files[i] += classes_n_T
                             n_F_classes_all_files[i] += classes_n_F
                             num_frames_all_files[i] += num_frames
                             errors_frames_all_files[i] += errors_frames
-
-
                         else:
 
                             # Top-1 MoC
@@ -532,11 +539,18 @@ class TrainerTCN:
                                 )
                                 n_T_classes_all_files[i] += classes_n_T
                                 n_F_classes_all_files[i] += classes_n_F
+
+                                per_sample_T[s, i] += classes_n_T
+                                per_sample_F[s, i] += classes_n_F
                                 
                             
                                 # choose the max one
                                 all_pred = classes_n_T + classes_n_F
                                 moc = np.mean(classes_n_T[all_pred != 0] / (classes_n_T[all_pred != 0] + classes_n_F[all_pred != 0]))
+
+                                # line = f"batch: {s}\taccuracy: {moc}"
+                                # g.write(line + "\n")
+                                
                                 if moc > max_moc:
                                     max_moc = moc   
                                     max_n_T_classes = classes_n_T        
@@ -568,7 +582,7 @@ class TrainerTCN:
                 # MoC (Mean over Classes metric)
                 for i in range(len(actions_dict)):
                     if n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i] != 0:
-                        print("accuracy ", i, (float(n_T_classes_all_files[j, i]) / (n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i])))
+                        
                         acc += (float(n_T_classes_all_files[j, i]) / (n_T_classes_all_files[j, i] + n_F_classes_all_files[j, i]))
                         n += 1
                     
@@ -576,7 +590,20 @@ class TrainerTCN:
                         max_acc += (float(max_n_T_classes_all_files[j, i]) / (max_n_T_classes_all_files[j, i] + max_n_F_classes_all_files[j, i]))
                         max_n += 1  
 
-   
+                ####### Per sample moc ####################
+                per_sample_moc = np.zeros(num_samples, dtype=np.float64)
+                for s in range(num_samples):
+                    per_sample_accuracy = 0.0; file_num = 0
+                    for i_cls in range(len(actions_dict)):
+                        denom = per_sample_T[s, j, i_cls] + per_sample_F[s, j, i_cls]
+                        if denom != 0:
+                            per_sample_accuracy += float(per_sample_T[s, j, i_cls]) / denom
+                            file_num += 1
+                    per_sample_moc[s] = (per_sample_accuracy / file_num) if file_num > 0 else 0.0
+
+                for s in range(num_samples):
+                    print(f"sample: {s}, MoC@{int(100*eval_percentages[j])}% = {per_sample_moc[s]:.4f}")
+
 
                 #  NORMALIZE
                 mof = 100 * (1.0 - float(errors_frames_all_files[j]) / num_frames_all_files[j])

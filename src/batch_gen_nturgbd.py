@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 import os
-
+from PIL import Image
 
 class BatchGeneratorTCN(Dataset):
     def __init__(
@@ -26,6 +26,10 @@ class BatchGeneratorTCN(Dataset):
         self.pred_perc = pred_perc
         self.part_obs = args.part_obs
 
+        self.qwen_max_side = 336
+        self._img_cache = {}              # (선택) 간단 캐시: path -> PIL.Image
+        self._img_cache_cap = 2048        # 캐시 상한(너무 크면 메모리 증가)
+
         # sanity check
         if self.mode != "train":
             assert self.obs_perc != 0
@@ -47,7 +51,26 @@ class BatchGeneratorTCN(Dataset):
                 self.list_of_examples.append([vid, 0.2])
                 self.list_of_examples.append([vid, 0.3])
                 self.list_of_examples.append([vid, 0.5])
-               
+    def _resize_max_side(self, img: Image.Image, max_side: int) -> Image.Image:
+        w, h = img.size
+        s = max(w, h)
+        if s <= max_side:
+            return img
+        scale = max_side / float(s)
+        new_w, new_h = int(w * scale), int(h * scale)
+        return img.resize((new_w, new_h), Image.BICUBIC)
+
+    def _load_resized_image(self, path: str, max_side: int) -> Image.Image:
+        # 가벼운 캐시 (선택)
+        if path in self._img_cache:
+            return self._img_cache[path]
+        img = Image.open(path).convert("RGB")
+        img = self._resize_max_side(img, max_side)
+        if len(self._img_cache) >= self._img_cache_cap:
+            # FIFO 식으로 하나 제거
+            self._img_cache.pop(next(iter(self._img_cache)))
+        self._img_cache[path] = img
+        return img
 
     def __len__(self):
         return len(self.list_of_examples)
@@ -80,6 +103,7 @@ class BatchGeneratorTCN(Dataset):
         file_ptr = open(gt_name, "r")
         content = file_ptr.read().split("\n")[:-1]
         vid_len = len(content)
+        seq_paths = [line.split(',')[0].replace('NTURGBD', 'darai/nturgbd') for line in content]
         content = [line.split(',')[1] for line in content]
         
         #content = [L1]*vid_len
@@ -126,6 +150,11 @@ class BatchGeneratorTCN(Dataset):
             classes_one_hot[int(content_past_future[i])][i] = 1
         classes_one_hot = classes_one_hot[:, :: self.sample_rate]
 
+        T = classes_one_hot.shape[1]
+        seq_paths = seq_paths[:: self.sample_rate]
+        if len(seq_paths) > T:
+            seq_paths = seq_paths[:T]
+
         # # goal (one hot)
         # goal_label_extend = goal_label.repeat(len(content_past_future))
         # goals_one_hot = np.zeros((int(self.num_highlevel_classes), len(content_past_future)))
@@ -144,6 +173,7 @@ class BatchGeneratorTCN(Dataset):
         assert len(content) == vid_len
         content_past_future = content_past_future[::self.sample_rate]
 
+        image_seq = [self._load_resized_image(p, self.qwen_max_side) for p in seq_paths]
 
         sample = {
             "features": features_past,
@@ -156,6 +186,7 @@ class BatchGeneratorTCN(Dataset):
             "file_name": file_name,
             #"goal":goal_label,
             #"goal_one_hot": goals_one_hot,
+            "video_file": image_seq,
         }
         return sample
 
@@ -182,7 +213,7 @@ class BatchGeneratorTCN(Dataset):
         file_names = np.asarray([item["file_name"] for item in batch])
         batch_vid_len = [item["vid_len"] for item in batch]
 
-
+        batch_video_files = [item["video_file"] for item in batch]
         """ PAD """
         # PADDING (based on the LONGEST sequence in the batch)
         bz = len(batch_features)
@@ -236,6 +267,8 @@ class BatchGeneratorTCN(Dataset):
         file_names = file_names[perm_idx.tolist()]
         meta_dict = {"file_names": file_names}
 
+        video_files = [batch_video_files[i] for i in perm_idx.tolist()]
+
         return (
             features_tensor,
             classes_tensor,
@@ -248,4 +281,5 @@ class BatchGeneratorTCN(Dataset):
             meta_dict,
             features_tensor,
             classes_tensor_one_hot,
+            video_files,
         )

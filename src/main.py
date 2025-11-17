@@ -9,6 +9,7 @@ import torch
 from trainers import TrainerTCN
 #from batch_gen import BatchGeneratorTCN
 from batch_gen_darai import BatchGeneratorTCN
+#from batch_gen_darai_l2 import BatchGeneratorTCN
 #from batch_gen_nturgbd import BatchGeneratorTCN
 #from batch_gen_utkinects import BatchGeneratorTCN
 from batch_gen_assembly import BatchGeneratorAssembly101TCN
@@ -66,7 +67,7 @@ parser.add_argument('--channel_dropout_prob', default=0.4, type=float)
 
 
 # diffusion
-parser.add_argument('--num_samples', default=1, type=int)
+parser.add_argument('--num_samples', default=5, type=int)
 parser.add_argument('--num_infr_diff_timesteps', default=50, type=int)
 parser.add_argument('--num_diff_timesteps', default=1000, type=int)
 parser.add_argument('--conditioned_x0', action='store_true')
